@@ -36,6 +36,15 @@ function read_payload(): string {
     return $raw;
 }
 
+function is_truthy_flag(mixed $v): bool {
+    if (is_bool($v)) return $v;
+    if (is_int($v)) return $v !== 0;
+    if (is_string($v)) return in_array(strtolower($v), ['1', 'true', 'yes', 'on'], true);
+    return false;
+}
+
+$dryRun = is_truthy_flag($_POST['dry_run'] ?? null) || is_truthy_flag($_GET['dry_run'] ?? null);
+
 $raw = read_payload();
 
 try {
@@ -45,6 +54,29 @@ try {
 }
 
 $normalized = normalize_recipe($data);
+
+// Kategorie-Existenzprüfung — nur als Warnung, nicht als Fehler
+$warnings = [];
+$category = trim((string) ($normalized['category'] ?? ''));
+if ($category !== '') {
+    $stmt = $db->prepare('SELECT 1 FROM rezepte WHERE kategorie = :k LIMIT 1');
+    $stmt->execute([':k' => $category]);
+    if (!$stmt->fetch()) {
+        $warnings[] = [
+            'type' => 'new_category',
+            'message' => sprintf('Kategorie "%s" existiert noch nicht — wird neu angelegt.', $category),
+            'category' => $category,
+        ];
+    }
+}
+
+if ($dryRun) {
+    json_response([
+        'ok' => true,
+        'warnings' => $warnings,
+        'preview' => $normalized,
+    ]);
+}
 
 $stmt = $db->prepare('
     INSERT INTO rezepte (titel, kategorie, quelle, zubereitungszeit, daten)
@@ -59,4 +91,4 @@ $stmt->execute([
 ]);
 
 $id = (int) $db->lastInsertId();
-json_response(['success' => true, 'id' => $id], 201);
+json_response(['success' => true, 'id' => $id, 'warnings' => $warnings], 201);

@@ -26,17 +26,18 @@ export const api = {
         return handle(res);
     },
 
-    async uploadRezept(file) {
+    async uploadRezept(file, { dryRun = false } = {}) {
         const fd = new FormData();
         fd.append('datei', file);
+        if (dryRun) fd.append('dry_run', '1');
         const res = await fetch(`${BASE}/upload.php`, { method: 'POST', body: fd });
         return handle(res);
     },
 
-    async uploadRezeptJson(jsonObj) {
+    async uploadRezeptJson(jsonObj, opts = {}) {
         const blob = new Blob([JSON.stringify(jsonObj)], { type: 'application/json' });
         const file = new File([blob], 'rezept.json', { type: 'application/json' });
-        return this.uploadRezept(file);
+        return this.uploadRezept(file, opts);
     },
 
     async updateRezept(id, jsonObj) {

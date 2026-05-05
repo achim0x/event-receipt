@@ -1,5 +1,6 @@
 import { api } from '../api.js';
 import { cart } from '../app.js';
+import { displayUnit } from '../units.js';
 
 function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, (c) => ({
@@ -15,13 +16,34 @@ function formatQuantity(q) {
     return n.toFixed(2).replace(/\.?0+$/, '');
 }
 
+function downloadText(filename, text) {
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+}
+
+async function copyText(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        alert('In Zwischenablage kopiert.');
+    } catch {
+        alert('Kopieren fehlgeschlagen — bitte manuell aus der Liste kopieren.');
+    }
+}
+
 function listToText(liste) {
     const lines = [];
     for (const grp of liste) {
         if (grp.group) lines.push(`# ${grp.group}`);
         for (const it of grp.items) {
             const q = formatQuantity(it.quantity);
-            const u = it.unit || '';
+            const u = displayUnit(it.unit);
             const parts = [q, u, it.name].filter(Boolean);
             lines.push('- ' + parts.join(' '));
         }
@@ -30,8 +52,64 @@ function listToText(liste) {
     return lines.join('\n').trimEnd() + '\n';
 }
 
+function aggregateSpices(recipes) {
+    const seen = new Map();
+    for (const { rezept } of recipes) {
+        const spices = (rezept.daten?.spices || []).filter(Boolean);
+        for (const s of spices) {
+            const trimmed = String(s).trim();
+            if (!trimmed) continue;
+            const key = trimmed.toLowerCase();
+            if (!seen.has(key)) seen.set(key, trimmed);
+        }
+    }
+    return [...seen.values()].sort((a, b) => a.localeCompare(b, 'de'));
+}
+
+function aggregateEquipment(recipes) {
+    // Pro Equipment-Name den größten gefundenen Bedarf nehmen — kein Aufsummieren,
+    // weil ein Topf für mehrere Rezepte typischerweise wiederverwendet wird.
+    const map = new Map();
+    for (const { rezept } of recipes) {
+        const items = Array.isArray(rezept.daten?.kitchen_equipment)
+            ? rezept.daten.kitchen_equipment : [];
+        for (const e of items) {
+            const name = String(e.name ?? '').trim();
+            if (!name) continue;
+            const qty = typeof e.quantity === 'number' && e.quantity > 0 ? e.quantity : 1;
+            const key = name.toLowerCase();
+            const prev = map.get(key);
+            if (!prev || prev.quantity < qty) {
+                map.set(key, { quantity: qty, name });
+            }
+        }
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+}
+
+function spicesToText(spices) {
+    if (!spices.length) return '';
+    return spices.map(s => '- ' + s).join('\n') + '\n';
+}
+
+function equipmentToText(items) {
+    if (!items.length) return '';
+    return items.map(e => `- ${formatQuantity(e.quantity)} × ${e.name}`).join('\n') + '\n';
+}
+
 export function renderEinkaufsliste(root) {
+    let cachedRecipes = null;
+
+    async function loadRecipes() {
+        if (cachedRecipes) return cachedRecipes;
+        const items = cart.all();
+        const fetched = await Promise.all(items.map(c => api.getRezept(c.id)));
+        cachedRecipes = fetched.map((rezept, i) => ({ rezept, personen: items[i].personen }));
+        return cachedRecipes;
+    }
+
     function draw() {
+        cachedRecipes = null;
         const items = cart.all();
 
         root.innerHTML = `
@@ -51,7 +129,10 @@ export function renderEinkaufsliste(root) {
                         </tbody>
                     </table>
                     <div class="row-buttons">
-                        <button type="button" class="btn primary" id="generate">Liste generieren</button>
+                        <button type="button" class="btn primary" id="show-zutaten">Zutaten</button>
+                        <button type="button" class="btn" id="show-gewuerze">Gewürze</button>
+                        <button type="button" class="btn" id="show-equipment">Küchenausstattung</button>
+                        <a href="/einkaufsliste/rezepte" data-link class="btn">Komplette Rezepte ↗</a>
                         <button type="button" class="btn" id="clear">Alle entfernen</button>
                     </div>
                     <div id="ergebnis"></div>
@@ -67,6 +148,7 @@ export function renderEinkaufsliste(root) {
             const id = parseInt(tr.dataset.id, 10);
             tr.querySelector('.personen-input').addEventListener('change', (e) => {
                 cart.setPersonen(id, e.target.value);
+                cachedRecipes = null;
             });
             tr.querySelector('.remove').addEventListener('click', () => {
                 cart.remove(id);
@@ -81,10 +163,12 @@ export function renderEinkaufsliste(root) {
             }
         });
 
-        root.querySelector('#generate').addEventListener('click', generate);
+        root.querySelector('#show-zutaten').addEventListener('click', generateZutaten);
+        root.querySelector('#show-gewuerze').addEventListener('click', generateGewuerze);
+        root.querySelector('#show-equipment').addEventListener('click', generateEquipment);
     }
 
-    async function generate() {
+    async function generateZutaten() {
         const items = cart.all();
         const ergebnis = root.querySelector('#ergebnis');
         ergebnis.innerHTML = `<p class="muted">Generiere…</p>`;
@@ -97,51 +181,110 @@ export function renderEinkaufsliste(root) {
                 return;
             }
 
+            const text = listToText(liste);
             ergebnis.innerHTML = `
                 <div class="ergebnis">
-                    <h2>Einkaufsliste</h2>
+                    <h2>Zutaten (skaliert &amp; aggregiert)</h2>
                     ${liste.map(grp => `
                         ${grp.group ? `<h3>${escapeHtml(grp.group)}</h3>` : ''}
                         <ul>
-                            ${grp.items.map(it => `
+                            ${grp.items.map(it => {
+                                const u = displayUnit(it.unit);
+                                return `
                                 <li>
                                     <label>
                                         <input type="checkbox">
-                                        <strong>${escapeHtml(formatQuantity(it.quantity))}${it.unit ? ' ' + escapeHtml(it.unit) : ''}</strong>
+                                        <strong>${escapeHtml(formatQuantity(it.quantity))}${u ? ' ' + escapeHtml(u) : ''}</strong>
                                         ${escapeHtml(it.name)}
                                     </label>
-                                </li>
-                            `).join('')}
+                                </li>`;
+                            }).join('')}
                         </ul>
                     `).join('')}
                     <div class="row-buttons">
-                        <button type="button" class="btn" id="copy">📋 Als Text kopieren</button>
-                        <button type="button" class="btn" id="download">💾 Als .txt herunterladen</button>
+                        <button type="button" class="btn" data-action="copy">📋 Als Text kopieren</button>
+                        <button type="button" class="btn" data-action="download">💾 Als .txt herunterladen</button>
                     </div>
                 </div>
             `;
 
-            const text = listToText(liste);
+            ergebnis.querySelector('[data-action=copy]').addEventListener('click', () => copyText(text));
+            ergebnis.querySelector('[data-action=download]').addEventListener('click', () => downloadText('einkaufsliste.txt', text));
+        } catch (err) {
+            ergebnis.innerHTML = `<p class="error">Fehler: ${escapeHtml(err.message)}</p>`;
+        }
+    }
 
-            ergebnis.querySelector('#copy').addEventListener('click', async () => {
-                try {
-                    await navigator.clipboard.writeText(text);
-                    alert('In Zwischenablage kopiert.');
-                } catch {
-                    alert('Kopieren fehlgeschlagen — bitte manuell aus der Liste kopieren.');
-                }
-            });
-            ergebnis.querySelector('#download').addEventListener('click', () => {
-                const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'einkaufsliste.txt';
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                URL.revokeObjectURL(url);
-            });
+    async function generateGewuerze() {
+        const ergebnis = root.querySelector('#ergebnis');
+        ergebnis.innerHTML = `<p class="muted">Lade Rezepte…</p>`;
+        try {
+            const recipes = await loadRecipes();
+            const spices = aggregateSpices(recipes);
+
+            if (!spices.length) {
+                ergebnis.innerHTML = `<p class="muted">Keine Gewürze in den ausgewählten Rezepten.</p>`;
+                return;
+            }
+
+            const text = spicesToText(spices);
+            ergebnis.innerHTML = `
+                <div class="ergebnis">
+                    <h2>Gewürze (${spices.length} verschiedene)</h2>
+                    <ul>
+                        ${spices.map(s => `
+                            <li><label><input type="checkbox"> ${escapeHtml(s)}</label></li>
+                        `).join('')}
+                    </ul>
+                    <div class="row-buttons">
+                        <button type="button" class="btn" data-action="copy">📋 Kopieren</button>
+                        <button type="button" class="btn" data-action="download">💾 Als .txt herunterladen</button>
+                    </div>
+                </div>
+            `;
+
+            ergebnis.querySelector('[data-action=copy]').addEventListener('click', () => copyText(text));
+            ergebnis.querySelector('[data-action=download]').addEventListener('click', () => downloadText('gewuerze.txt', text));
+        } catch (err) {
+            ergebnis.innerHTML = `<p class="error">Fehler: ${escapeHtml(err.message)}</p>`;
+        }
+    }
+
+    async function generateEquipment() {
+        const ergebnis = root.querySelector('#ergebnis');
+        ergebnis.innerHTML = `<p class="muted">Lade Rezepte…</p>`;
+        try {
+            const recipes = await loadRecipes();
+            const equipment = aggregateEquipment(recipes);
+
+            if (!equipment.length) {
+                ergebnis.innerHTML = `<p class="muted">Keine Küchenausstattung in den ausgewählten Rezepten angegeben.</p>`;
+                return;
+            }
+
+            const text = equipmentToText(equipment);
+            ergebnis.innerHTML = `
+                <div class="ergebnis">
+                    <h2>Küchenausstattung (${equipment.length} Posten)</h2>
+                    <p class="muted">Pro Posten der größte Bedarf aus den ausgewählten Rezepten — wird nicht aufsummiert, da Geräte typischerweise wiederverwendet werden.</p>
+                    <ul>
+                        ${equipment.map(e => `
+                            <li><label>
+                                <input type="checkbox">
+                                <strong>${escapeHtml(formatQuantity(e.quantity))} ×</strong>
+                                ${escapeHtml(e.name)}
+                            </label></li>
+                        `).join('')}
+                    </ul>
+                    <div class="row-buttons">
+                        <button type="button" class="btn" data-action="copy">📋 Kopieren</button>
+                        <button type="button" class="btn" data-action="download">💾 Als .txt herunterladen</button>
+                    </div>
+                </div>
+            `;
+
+            ergebnis.querySelector('[data-action=copy]').addEventListener('click', () => copyText(text));
+            ergebnis.querySelector('[data-action=download]').addEventListener('click', () => downloadText('kuechenausstattung.txt', text));
         } catch (err) {
             ergebnis.innerHTML = `<p class="error">Fehler: ${escapeHtml(err.message)}</p>`;
         }

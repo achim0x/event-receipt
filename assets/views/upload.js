@@ -1,5 +1,6 @@
 import { api } from '../api.js';
 import { navigate } from '../app.js';
+import { displayUnit } from '../units.js';
 
 function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, (c) => ({
@@ -7,11 +8,19 @@ function escapeHtml(s) {
     }[c]));
 }
 
+function formatQuantity(q) {
+    if (q == null || q === '') return '';
+    const n = typeof q === 'number' ? q : parseFloat(q);
+    if (Number.isNaN(n)) return String(q);
+    if (Math.abs(n - Math.round(n)) < 0.001) return String(Math.round(n));
+    return n.toFixed(2).replace(/\.?0+$/, '');
+}
+
 export function renderUpload(root) {
     root.innerHTML = `
         <section>
             <h1>Rezept hochladen</h1>
-            <p class="muted">Lade eine JSON-Datei mit deutschem oder englischem Schema hoch (max. 1 MB).</p>
+            <p class="muted">Lade eine JSON-Datei mit deutschem oder englischem Schema hoch (max. 1 MB). Einheiten werden automatisch normalisiert (kg→g, L→ml, EL→g, TL→g, Stück→Pcs, Packung→Pck).</p>
 
             <div id="dropzone" class="dropzone">
                 <p><strong>JSON-Datei hierher ziehen</strong></p>
@@ -22,8 +31,8 @@ export function renderUpload(root) {
                 </label>
             </div>
 
-            <div id="preview"></div>
             <div id="status"></div>
+            <div id="preview"></div>
         </section>
     `;
 
@@ -32,78 +41,117 @@ export function renderUpload(root) {
     const preview = root.querySelector('#preview');
     const status = root.querySelector('#status');
 
-    let parsed = null;
+    let currentFile = null;
+    let currentPreviewObj = null;
 
     function showStatus(msg, kind = 'info') {
         status.innerHTML = `<p class="${kind}">${escapeHtml(msg)}</p>`;
     }
     function clearStatus() { status.innerHTML = ''; }
+    function clearPreview() { preview.innerHTML = ''; currentPreviewObj = null; }
 
     async function handleFile(file) {
         clearStatus();
-        preview.innerHTML = '';
-        parsed = null;
+        clearPreview();
+        currentFile = null;
 
         if (!file) return;
         if (file.size > 1024 * 1024) {
             showStatus('Datei zu groß (max. 1 MB)', 'error');
             return;
         }
+
+        // Lokaler JSON-Sanity-Check vorab — gibt schnellere Fehlermeldung als der Server-Roundtrip
         let text;
         try {
             text = await file.text();
-        } catch (err) {
+        } catch {
             showStatus('Datei konnte nicht gelesen werden', 'error');
             return;
         }
-        let obj;
         try {
-            obj = JSON.parse(text);
+            JSON.parse(text);
         } catch (err) {
             showStatus('Ungültiges JSON: ' + err.message, 'error');
             return;
         }
 
-        parsed = { file, obj };
-        renderPreview(obj);
+        currentFile = file;
+        showStatus('Validiere…');
+
+        try {
+            const result = await api.uploadRezept(file, { dryRun: true });
+            currentPreviewObj = result.preview;
+            renderPreview(result);
+            clearStatus();
+        } catch (err) {
+            showStatus('Fehler: ' + err.message, 'error');
+        }
     }
 
-    function renderPreview(obj) {
-        const titel = obj.title ?? obj.titel ?? '(ohne Titel)';
-        const kat = obj.category ?? obj.kategorie ?? '';
-        const zeit = obj.preparation_time ?? obj.zubereitungszeit ?? '';
-        const ingredients = obj.ingredients ?? obj.zutaten ?? [];
-        const ingredientCount = Array.isArray(ingredients)
-            ? ingredients.reduce((sum, g) => sum + (Array.isArray(g.items ?? g.zutaten) ? (g.items ?? g.zutaten).length : 0), 0)
-            : 0;
+    function renderPreview({ preview: rezept, warnings }) {
+        const ingredients = Array.isArray(rezept.ingredients) ? rezept.ingredients : [];
+
+        const warningsHtml = warnings && warnings.length
+            ? `<div class="warning-box">
+                  ${warnings.map(w => `
+                    <p><strong>⚠ Warnung:</strong> ${escapeHtml(w.message)}</p>
+                  `).join('')}
+                  <p class="muted">Du kannst trotzdem speichern.</p>
+               </div>`
+            : '';
+
+        const ingredientsHtml = ingredients.map(g => `
+            ${g.group ? `<h4>${escapeHtml(g.group)}</h4>` : ''}
+            <ul class="zutaten">
+                ${(g.items || []).map(it => {
+                    const u = displayUnit(it.unit);
+                    return `<li><strong>${escapeHtml(formatQuantity(it.quantity))}${u ? ' ' + escapeHtml(u) : ''}</strong> ${escapeHtml(it.name || '')}</li>`;
+                }).join('')}
+            </ul>
+        `).join('');
 
         preview.innerHTML = `
             <div class="preview">
-                <h2>Vorschau</h2>
+                <h2>Vorschau (nach Normalisierung)</h2>
+                ${warningsHtml}
                 <dl>
-                    <dt>Titel</dt><dd>${escapeHtml(titel)}</dd>
-                    ${kat ? `<dt>Kategorie</dt><dd>${escapeHtml(kat)}</dd>` : ''}
-                    ${zeit ? `<dt>Zubereitungszeit</dt><dd>${escapeHtml(zeit)}</dd>` : ''}
-                    <dt>Zutaten</dt><dd>${ingredientCount} Einträge</dd>
+                    <dt>Titel</dt><dd>${escapeHtml(rezept.title || '')}</dd>
+                    ${rezept.category ? `<dt>Kategorie</dt><dd>${escapeHtml(rezept.category)}</dd>` : ''}
+                    ${rezept.preparation_time ? `<dt>Zubereitungszeit</dt><dd>${escapeHtml(rezept.preparation_time)}</dd>` : ''}
+                    ${rezept.source ? `<dt>Quelle</dt><dd>${escapeHtml(rezept.source)}</dd>` : ''}
                 </dl>
+
+                ${ingredients.length ? `<h3>Zutaten (Mengen pro Person, Einheiten normalisiert)</h3>${ingredientsHtml}` : ''}
+
                 <details>
-                    <summary>Rohes JSON anzeigen</summary>
-                    <pre>${escapeHtml(JSON.stringify(obj, null, 2))}</pre>
+                    <summary>Normalisiertes JSON anzeigen</summary>
+                    <pre>${escapeHtml(JSON.stringify(rezept, null, 2))}</pre>
                 </details>
-                <button type="button" class="btn primary" id="upload-btn">Rezept speichern</button>
+
+                <div class="row-buttons">
+                    <button type="button" class="btn primary" id="save-btn">Speichern</button>
+                    <button type="button" class="btn" id="cancel-btn">Abbrechen</button>
+                </div>
             </div>
         `;
 
-        preview.querySelector('#upload-btn').addEventListener('click', upload);
+        preview.querySelector('#save-btn').addEventListener('click', save);
+        preview.querySelector('#cancel-btn').addEventListener('click', () => {
+            fileInput.value = '';
+            clearPreview();
+            clearStatus();
+            currentFile = null;
+        });
     }
 
-    async function upload() {
-        if (!parsed) return;
-        showStatus('Lade hoch…');
+    async function save() {
+        if (!currentFile) return;
+        showStatus('Speichere…');
         try {
-            const result = await api.uploadRezept(parsed.file);
+            const result = await api.uploadRezept(currentFile);
             showStatus(`✓ Gespeichert (ID ${result.id})`, 'success');
-            setTimeout(() => navigate(`/rezept/${result.id}`), 600);
+            setTimeout(() => navigate(`/rezept/${result.id}`), 500);
         } catch (err) {
             showStatus('Fehler: ' + err.message, 'error');
         }

@@ -48,18 +48,20 @@ chmod 777 data/        # Apache muss SQLite-DB anlegen können
 ├── translation_map.json        # DE↔EN Key-Mapping
 ├── api/
 │   ├── bootstrap.php           # PDO + Schema + CORS + Error-Handler
-│   ├── translation.php         # DE→EN Normalisierung + Validierung (shared)
+│   ├── translation.php         # DE→EN Keys + Einheiten-Normalisierung + Validierung
 │   ├── rezepte.php             # GET-Liste, GET-Einzeln, PUT, DELETE
-│   ├── upload.php              # POST (multipart oder raw JSON) → INSERT
+│   ├── upload.php              # POST (multipart oder raw JSON) → dry_run / INSERT
 │   └── einkaufsliste.php       # POST → aggregierte Einkaufsliste
 ├── assets/
 │   ├── app.js                  # Router + Cart-State (localStorage)
 │   ├── api.js                  # Fetch-Wrapper
+│   ├── units.js                # displayUnit() — Pcs→Stück, Pck→Packung
 │   ├── style.css
 │   └── views/
 │       ├── rezepte.js          # List, Detail, Edit (renderRezept{Liste,Detail,Edit})
-│       ├── upload.js           # Drag&Drop + JSON-Vorschau
-│       └── einkaufsliste.js    # Cart-Verwaltung + Generator + Export
+│       ├── rezepte_print.js    # Druck-/PDF-Ansicht aller Cart-Rezepte
+│       ├── upload.js           # Drag&Drop, dry-run-Vorschau, Save/Abbrechen
+│       └── einkaufsliste.js    # Cart, Zutaten/Gewürze/Equipment-Aggregation, Export
 └── data/
     └── rezepte.db              # SQLite (wird beim ersten API-Call angelegt)
 ```
@@ -123,9 +125,11 @@ gewünschten Personenzahl direkt — kein `basis_personen`-Feld.
 
 ---
 
-## 5. DE↔EN Key-Übersetzung
+## 5. DE↔EN Übersetzung
 
-`translation_map.json` enthält:
+### 5.1 Keys
+
+`translation_map.json` Sektionen `de_to_en` / `en_to_de`:
 
 | DE-Key            | EN-Key             |
 |-------------------|--------------------|
@@ -154,6 +158,36 @@ um z. B. `"eintraege": "items"` erweitert werden.
 `upload.php` (POST) und `rezepte.php` (PUT). Eingehende Daten werden
 rekursiv durchgegangen, bekannte DE-Keys werden auf EN umgesetzt;
 unbekannte Keys bleiben unverändert.
+
+### 5.2 Einheiten
+
+**Erlaubte kanonische Einheiten** in der DB: `''` (leer), `g`, `ml`,
+`Pck`, `Pcs`. Beim Upload und PUT werden eingehende Einheiten in diese
+Form normalisiert. Match ist **case-insensitiv** — geprüft wird zuerst
+auf exakten String-Match, dann gegen die Map mit
+`strtolower`-Vergleich.
+
+| Eingehend           | Kanonisch | Faktor auf `quantity` |
+|---------------------|-----------|----------------------:|
+| `g`, `ml`, `Pck`, `Pcs` (oder leer) | identisch | 1 |
+| `kg`                | `g`       | × 1000               |
+| `L`, `l`            | `ml`      | × 1000               |
+| `EL`                | `g`       | × 15                 |
+| `TL`                | `g`       | × 5                  |
+| `Stück`, `Stueck`, `Stk` | `Pcs` | 1                    |
+| `Packung`           | `Pck`     | 1                    |
+
+**Alles andere** ⇒ HTTP 400 mit `{"error": "Einheiten-Fehler: Unbekannte Einheit \"X\" bei Zutat \"Y\""}` und Upload/PUT wird abgebrochen.
+
+**Source of Truth** für die Mathematik: `unit_normalization_map()` in
+`api/translation.php`. `translation_map.json` (`units_de_to_en` /
+`units_en_to_de`) spiegelt nur die rein-wertbasierten Mappings
+(`Stück↔Pcs`, `Packung↔Pck`) für Doku/Anzeige — wer dort etwas
+ergänzt, muss auch die PHP-Map anpassen.
+
+**Anzeige im Frontend**: `assets/units.js` (`displayUnit()`) zeigt
+`Pcs` als „Stück" und `Pck` als „Packung". `g`/`ml` werden unverändert
+angezeigt. Die DB hält immer die kanonische EN-Form.
 
 ---
 
@@ -218,11 +252,32 @@ JSON-Upload, zwei Eingabemodi:
 1. `multipart/form-data` mit Feld `datei`
 2. Roh-JSON im Request-Body (`Content-Type` egal)
 
-Max. 1 MB. Validierung wie PUT. Antwort `201 Created`:
+Max. 1 MB. Validierung: Pflichtfelder + Einheiten-Normalisierung (siehe Sektion 5.2). Bei unbekannter Einheit ⇒ 400 + Abbruch.
+
+**Optional `dry_run=1`** als POST- oder GET-Parameter — führt komplette Validierung
++ Normalisierung + Kategorie-Existenzprüfung durch, **schreibt aber nichts** in die DB:
 
 ```json
-{ "success": true, "id": 42 }
+{
+  "ok": true,
+  "warnings": [
+    { "type": "new_category",
+      "message": "Kategorie \"Backwaren\" existiert noch nicht — wird neu angelegt.",
+      "category": "Backwaren" }
+  ],
+  "preview": { /* normalisiertes Rezept-JSON, kanonische Einheiten */ }
+}
 ```
+
+Echter Save (ohne `dry_run`), Antwort `201 Created`:
+
+```json
+{ "success": true, "id": 42, "warnings": [...] }
+```
+
+Das Frontend macht beim Datei-Pick automatisch erst einen `dry_run`,
+zeigt das normalisierte Ergebnis + ggf. Warnungen, und sendet nur
+nach Bestätigung den eigentlichen Save.
 
 ### `POST /api/einkaufsliste.php`
 
@@ -305,7 +360,8 @@ spezifischere zuerst):
 | `/rezept/{id}`                   | Detail                  |
 | `/rezept/{id}/bearbeiten`        | JSON-Editor             |
 | `/upload`                        | Upload-View             |
-| `/einkaufsliste`                 | Einkaufslisten-Ansicht  |
+| `/einkaufsliste`                 | Cart + Aggregations     |
+| `/einkaufsliste/rezepte`         | Druck-Ansicht aller Cart-Rezepte |
 
 Ein Klick auf `<a data-link href="…">` ruft `navigate(href)` auf,
 das `pushState` macht und neu rendert. `popstate` wird gehört.
@@ -326,19 +382,47 @@ werden im Frontend live skaliert. Buttons:
 Abbrechen. Beim Speichern wird `cart`-Eintrag mit aktualisiertem Titel
 neu eingetragen, falls das Rezept dort liegt.
 
-**`renderUpload`** — Drag&Drop oder File-Picker, JSON parsen und
-Vorschau (Titel, Kategorie, Zutaten-Anzahl, Roh-JSON in `<details>`).
+**`renderUpload`** — Drag&Drop oder File-Picker. Nach Auswahl wird
+**automatisch ein dry-run** an `/api/upload.php?dry_run=1` geschickt;
+das normalisierte Rezept wird mit `displayUnit()`-übersetzten
+Einheiten angezeigt. Warnungen (z. B. neue Kategorie) erscheinen in
+einer gelben Box mit Hinweis „Du kannst trotzdem speichern". Erst
+**Speichern** löst den echten Insert aus; **Abbrechen** verwirft alles.
+Bei Einheiten-Fehlern erscheint nur die Fehlermeldung — kein
+Speichern-Button.
 
-**`renderEinkaufsliste`** — Cart-Tabelle mit Personenzahl-Inputs, Liste
-generieren, Ergebnis als Checkliste, Copy-to-Clipboard und
-`.txt`-Download.
+**`renderEinkaufsliste`** — Cart-Tabelle mit Personenzahl-Inputs. Vier
+Output-Buttons:
+
+| Button | Quelle | Logik | Export |
+|---|---|---|---|
+| Zutaten | `POST /api/einkaufsliste.php` | Skalierung pro Personen, gleiche `name`+`unit` summieren, gruppiert | Copy / `einkaufsliste.txt` |
+| Gewürze | Client-Aggregation aus `daten.spices` aller Cart-Rezepte | Union, case-insensitive Dedup, alphabetisch | Copy / `gewuerze.txt` |
+| Küchenausstattung | Client-Aggregation aus `daten.kitchen_equipment` | Union nach `name` (case-insensitive); Quantity ist **Maximum** über Rezepte (kein Aufsummieren — Geräte werden wiederverwendet) | Copy / `kuechenausstattung.txt` |
+| Komplette Rezepte ↗ | Link auf `/einkaufsliste/rezepte` | siehe `renderRezeptePrint` | dort |
+
+Das Ergebnis wird in einem gemeinsamen `<div id="ergebnis">` Bereich
+gerendert — jeder Klick ersetzt den Inhalt. Geladene Volldaten werden
+zwischen den Aggregations-Buttons gecached (bis Personenzahl geändert
+oder Rezept entfernt wird).
+
+**`renderRezeptePrint`** (Route `/einkaufsliste/rezepte`) — Lädt alle
+Cart-Rezepte parallel via `Promise.all(getRezept)`, rendert sie skaliert
+nach Personenzahl in print-freundlichem Layout (Titel, Meta, Zutaten,
+Gewürze, Zubereitung, Tipps, Küchenausstattung). Buttons:
+- "🖨 Drucken / als PDF speichern" → `window.print()`. Print-CSS in
+  `style.css` blendet Header/Footer/Buttons aus und setzt
+  Seitenumbrüche zwischen Rezepten.
+- "💾 Als .txt herunterladen" → `rezepte.txt` mit ASCII-formatierten Sektionen.
+
+Buttons sind mit `class="no-print"` markiert — die Print-CSS regelt deren Sichtbarkeit.
 
 ### Fetch-Wrapper (`assets/api.js`)
 
 Methoden:
 - `listRezepte({ suche, kategorie })`
 - `getRezept(id)`
-- `uploadRezept(file)` / `uploadRezeptJson(obj)`
+- `uploadRezept(file, { dryRun })` / `uploadRezeptJson(obj, { dryRun })`
 - `updateRezept(id, json)` (PUT)
 - `deleteRezept(id)` (DELETE)
 - `einkaufsliste(rezepte)`
@@ -381,6 +465,7 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 | `unable to open database file` | `data/` nicht beschreibbar für Apache | `chmod 777 data/` (oder `chown www-data data/`) |
 | Detail-Endpunkt liefert Liste statt Einzel-Rezept | Pfad-Regex matcht nicht | aktueller Regex matcht `/api/rezepte/{id}` UND `/api/rezepte.php/{id}` |
 | Cart enthält gelöschtes Rezept | Cart wird auf Server-Seite nicht synchronisiert | Frontend ruft `cart.remove()` nach `DELETE` auf — bei direkten DB-Eingriffen muss man im Browser localStorage manuell leeren |
+| Upload bricht mit "Unbekannte Einheit" ab | Einheit ist nicht in der Map (siehe 5.2) | Entweder JSON anpassen (z. B. `Stk` → `Stück`), oder `unit_normalization_map()` in `api/translation.php` ergänzen + ggf. `translation_map.json` aktualisieren |
 
 ---
 
@@ -415,6 +500,33 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 - `mb_strtolower`-Fallback auf `strtolower` in `einkaufsliste.php`
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
+
+### 2026-05-05 — Einkaufsliste: Gewürze, Küchenausstattung, Rezept-Export
+
+- Einkaufsliste hat jetzt vier Output-Modi: Zutaten, Gewürze, Küchenausstattung, komplette Rezepte
+- **Gewürze**: client-seitige Union aller `spices` aus den Cart-Rezepten, case-insensitive dedupliziert, alphabetisch (de-Locale)
+- **Küchenausstattung**: client-seitige Union aller `kitchen_equipment`, Maximum-Quantity pro `name` (kein Aufsummieren — Geräte sind wiederverwendbar)
+- Alle drei Aggregations-Modi haben Copy-to-Clipboard und `.txt`-Download
+- Neue Route `/einkaufsliste/rezepte` mit `renderRezeptePrint()`: druckfreundliche Vollansicht aller Cart-Rezepte. `window.print()` für PDF-Speicherung über den Browser-Druckdialog, separater `.txt`-Export.
+- Print-CSS (`@media print`): blendet Navigation/Footer/Buttons (`.no-print`) aus, Seitenumbrüche zwischen Rezepten
+- `Promise.all(getRezept)` für paralleles Vollladen; Cache für die Volldaten zwischen den Aggregations-Buttons (invalidiert bei Personenzahl-Änderung oder Cart-Modifikation)
+
+### 2026-05-05 — `Stk` als Einheit + echte Case-Insensitivität
+
+- `Stk` (in beliebiger Schreibweise — `Stk`, `stk`, `STK`) wird jetzt zu `Pcs` normalisiert
+- `translation_map.json` `units_de_to_en` um `Stk → Pcs` erweitert
+- `unit_normalization_map()` um `Stk` ergänzt
+- **Bug-Fix**: das vorher behauptete „case-tolerant" hat nur teilweise funktioniert (`strtolower(input)` wurde gegen die case-mixed Map gematcht — `stk` schlug fehl). Lookup geht jetzt korrekt: erst exakter Match, dann fallback mit `strtolower`-Vergleich gegen alle Map-Keys
+
+### 2026-05-05 — Upload-Verfeinerung: Einheiten + Kategorie-Warnung
+
+- `translation_map.json` um `units_de_to_en` / `units_en_to_de` erweitert (`Stück↔Pcs`, `Packung↔Pck`)
+- `api/translation.php`: neue Funktionen `unit_normalization_map()`, `normalize_single_unit()`, `normalize_units_in_recipe()`. Wird automatisch in `normalize_recipe()` aufgerufen → Upload UND PUT normalisieren Einheiten konsistent.
+- Konvertierungen: `kg→g×1000`, `L/l→ml×1000`, `EL→g×15`, `TL→g×5`, `Stück/Stueck→Pcs`, `Packung→Pck`. Unbekannte Einheit ⇒ HTTP 400 mit Abbruch.
+- `api/upload.php`: neuer `dry_run`-Modus (POST- oder GET-Param). Liefert `{ok, warnings, preview}` ohne zu schreiben. Kategorie-Existenzcheck: wenn neu, kommt eine `new_category`-Warnung — wird beim echten Save als Soft-Warning mit zurückgegeben, blockiert aber nicht.
+- `assets/units.js` neu: `displayUnit()` für die Anzeige (`Pcs`→„Stück", `Pck`→„Packung").
+- `views/upload.js` umgebaut: bei Datei-Auswahl wird automatisch dry-run gemacht; normalisierte Vorschau mit deutschen Einheiten + Warnungs-Box; Speichern/Abbrechen-Buttons.
+- `views/rezepte.js` und `views/einkaufsliste.js`: `displayUnit()` bei der Anzeige + im Text-Export.
 
 ### 2026-05-05 — Bearbeiten & Löschen
 

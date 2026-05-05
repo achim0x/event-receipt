@@ -1,5 +1,6 @@
 import { api } from '../api.js';
 import { cart, navigate } from '../app.js';
+import { displayUnit } from '../units.js';
 
 function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, (c) => ({
@@ -270,7 +271,8 @@ function renderZutaten(ingredients, personen) {
             <ul class="zutaten">
                 ${items.map(i => {
                     const q = typeof i.quantity === 'number' ? i.quantity * faktor : '';
-                    return `<li><strong>${escapeHtml(formatQuantity(q))}${i.unit ? ' ' + escapeHtml(i.unit) : ''}</strong> ${escapeHtml(i.name || '')}</li>`;
+                    const u = displayUnit(i.unit);
+                    return `<li><strong>${escapeHtml(formatQuantity(q))}${u ? ' ' + escapeHtml(u) : ''}</strong> ${escapeHtml(i.name || '')}</li>`;
                 }).join('')}
             </ul>
         `;

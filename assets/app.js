@@ -1,6 +1,7 @@
 import { renderRezeptListe, renderRezeptDetail, renderRezeptEdit } from './views/rezepte.js';
 import { renderUpload } from './views/upload.js';
 import { renderEinkaufsliste } from './views/einkaufsliste.js';
+import { renderRezeptePrint } from './views/rezepte_print.js';
 
 const STORAGE_KEY = 'rezepte.einkaufsliste.v1';
 
@@ -65,6 +66,7 @@ const routes = [
     { pattern: /^\/rezept\/(\d+)\/bearbeiten$/, handler: (m) => renderRezeptEdit(app, parseInt(m[1], 10)) },
     { pattern: /^\/rezept\/(\d+)$/, handler: (m) => renderRezeptDetail(app, parseInt(m[1], 10)) },
     { pattern: /^\/upload$/, handler: () => renderUpload(app) },
+    { pattern: /^\/einkaufsliste\/rezepte$/, handler: () => renderRezeptePrint(app) },
     { pattern: /^\/einkaufsliste$/, handler: () => renderEinkaufsliste(app) },
 ];
 

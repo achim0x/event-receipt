@@ -28,5 +28,14 @@
     "preparation": "zubereitung",
     "tips": "tipps",
     "kitchen_equipment": "kuechenmaterial"
+  },
+  "units_de_to_en": {
+    "Stück": "Pcs",
+    "Stk": "Pcs",
+    "Packung": "Pck"
+  },
+  "units_en_to_de": {
+    "Pcs": "Stück",
+    "Pck": "Packung"
   }
 }
