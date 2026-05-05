@@ -1,0 +1,17 @@
+RewriteEngine On
+
+# /api/* wird direkt durch PHP serviert
+RewriteCond %{REQUEST_URI} ^/api/
+RewriteRule ^ - [L]
+
+# Statische Dateien (assets, etc.) direkt liefern
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Alles andere -> SPA
+RewriteRule ^ index.html [L]
+
+# JSON Uploads bis 1MB
+php_value upload_max_filesize 2M
+php_value post_max_size 2M

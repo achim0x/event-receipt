@@ -1,0 +1,32 @@
+{
+  "de_to_en": {
+    "titel": "title",
+    "kategorie": "category",
+    "quelle": "source",
+    "zubereitungszeit": "preparation_time",
+    "zutaten": "ingredients",
+    "gruppe": "group",
+    "menge": "quantity",
+    "einheit": "unit",
+    "bezeichnung": "name",
+    "gewuerze": "spices",
+    "zubereitung": "preparation",
+    "tipps": "tips",
+    "kuechenmaterial": "kitchen_equipment"
+  },
+  "en_to_de": {
+    "title": "titel",
+    "category": "kategorie",
+    "source": "quelle",
+    "preparation_time": "zubereitungszeit",
+    "ingredients": "zutaten",
+    "group": "gruppe",
+    "quantity": "menge",
+    "unit": "einheit",
+    "name": "bezeichnung",
+    "spices": "gewuerze",
+    "preparation": "zubereitung",
+    "tips": "tipps",
+    "kitchen_equipment": "kuechenmaterial"
+  }
+}
