@@ -39,13 +39,13 @@ chmod 777 data/        # Apache muss SQLite-DB anlegen können
 ## 2. Projektstruktur (Ist-Zustand)
 
 ```
-/var/www/html/
-├── index.html                  # SPA-Shell (lädt /assets/app.js)
-├── .htaccess                   # Rewrite: /api/* → PHP, alles andere → index.html
+<app-root>/                     # Root oder beliebiges Unterverzeichnis (z.B. /rezepte/)
+├── index.php                   # SPA-Shell, setzt <base href="..."> dynamisch
+├── .htaccess                   # Rewrite: api/* → PHP, alles andere → index.php
 ├── REZEPT_APP_SPEC.md          # Original-Spec (historisch)
 ├── DEVELOPER.md                # dieses Dokument
 ├── recipe_template.json        # leere Vorlage (EN-Keys)
-├── translation_map.json        # DE↔EN Key-Mapping
+├── translation_map.json        # DE↔EN Key + Unit Mapping
 ├── api/
 │   ├── bootstrap.php           # PDO + Schema + CORS + Error-Handler
 │   ├── translation.php         # DE→EN Keys + Einheiten-Normalisierung + Validierung
@@ -53,8 +53,9 @@ chmod 777 data/        # Apache muss SQLite-DB anlegen können
 │   ├── upload.php              # POST (multipart oder raw JSON) → dry_run / INSERT
 │   └── einkaufsliste.php       # POST → aggregierte Einkaufsliste
 ├── assets/
+│   ├── config.js               # APP_BASE — aus import.meta.url abgeleitet
 │   ├── app.js                  # Router + Cart-State (localStorage)
-│   ├── api.js                  # Fetch-Wrapper
+│   ├── api.js                  # Fetch-Wrapper, BASE = APP_BASE + 'api'
 │   ├── units.js                # displayUnit() — Pcs→Stück, Pck→Packung
 │   ├── style.css
 │   └── views/
@@ -315,25 +316,76 @@ aber als Fallback vorhanden.
 ```apache
 RewriteEngine On
 
-# /api/* direkt durch PHP
-RewriteCond %{REQUEST_URI} ^/api/
-RewriteRule ^ - [L]
+# /api/* direkt durch PHP — relatives Pattern (kein führender /),
+# damit es im Root und in jedem Unterverzeichnis matcht.
+RewriteRule ^api/ - [L]
 
 # Statische Dateien direkt liefern
 RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d
 RewriteRule ^ - [L]
 
-# Alles andere → SPA
-RewriteRule ^ index.html [L]
+# Alles andere → SPA. index.php setzt <base> dynamisch.
+RewriteRule ^ index.php [L]
 
 php_value upload_max_filesize 2M
 php_value post_max_size 2M
 ```
 
+**Mount-Position-Unabhängigkeit**: Das Pattern `^api/` (ohne führenden
+Slash) wird von mod_rewrite per-directory **relativ zur .htaccess-Position**
+ausgewertet. Egal ob die App unter `/`, `/rezepte/`, `/foo/bar/` etc.
+liegt — `^api/` matcht immer den lokalen `api/`-Ordner.
+
 **Wichtig**: das `php_value` funktioniert nur mit `mod_php` (nicht
 PHP-FPM). Wenn der Server auf FPM umgestellt wird, muss das in `php.ini`
 oder per `SetEnv` umkonfiguriert werden.
+
+## 7.1 Mount-Point-Unabhängigkeit (Subdirectory-Deployment)
+
+Die App läuft unverändert in jedem Unterverzeichnis (z. B. `/rezepte/`,
+`/apps/kueche/`). Drei Mechanismen sorgen dafür:
+
+1. **`index.php` setzt `<base href="...">` dynamisch**:
+   ```php
+   $base = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\') . '/';
+   ```
+   Nach dem Apache-Rewrite zeigt `SCRIPT_NAME` auf `/<dir>/index.php`,
+   `dirname` ergibt `/<dir>`, plus `/` ⇒ `/<dir>/`. Im Root wird daraus `/`.
+   Alle relativen Pfade in HTML (`assets/style.css`, `<a href="upload">`)
+   werden vom Browser gegen diesen `<base>` aufgelöst.
+
+2. **`assets/config.js` exportiert `APP_BASE`**:
+   ```js
+   export const APP_BASE = new URL('../', import.meta.url).pathname;
+   ```
+   `import.meta.url` ist die volle URL des Moduls, z. B.
+   `http://host/rezepte/assets/config.js`. `new URL('../', ...)` gibt das
+   Parent-Verzeichnis ⇒ `/rezepte/`. Robust auch ohne `<base>`-Tag.
+
+3. **Alle `data-link`-Hrefs sind base-relativ** (`href="upload"`, nicht
+   `href="/upload"`). Der Browser löst sie gegen `<base>` auf; in Click-
+   Handlern wird `link.pathname` (vom Browser bereits aufgelöst) gelesen.
+   Der Router strippt `APP_BASE` von `location.pathname` vor dem
+   Pattern-Matching:
+   ```js
+   function getRoutePath() {
+       const p = location.pathname;
+       const baseNoTrail = APP_BASE.replace(/\/$/, '');
+       if (p === baseNoTrail || p === APP_BASE) return '/';
+       if (p.startsWith(APP_BASE)) return '/' + p.slice(APP_BASE.length);
+       return p;
+   }
+   ```
+
+**PHP-Backend** ist von Haus aus mount-agnostisch: Pfade werden über
+`__DIR__` aufgelöst, der Regex in `rezepte.php` für Pfad-IDs
+(`#/api/rezepte(?:\.php)?/(\d+)$#`) matcht beide Varianten.
+
+**Deployment**: einfach den Ordnerinhalt an die Zielposition kopieren.
+Sicherstellen dass `data/` für Apache schreibbar ist und
+`translation_map.json` lesbar (siehe Sektion 1). Keine weitere
+Konfiguration nötig.
 
 ---
 
@@ -501,6 +553,18 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 - `mb_strtolower`-Fallback auf `strtolower` in `einkaufsliste.php`
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
+
+### 2026-05-05 — Mount-Point-Unabhängigkeit (Subdirectory-Deployment)
+
+- App funktioniert jetzt unverändert in jedem Unterverzeichnis (`/`, `/rezepte/`, `/apps/foo/`, …)
+- `index.html` → **`index.php`**: setzt `<base href="…">` dynamisch aus `dirname($_SERVER['SCRIPT_NAME'])`
+- Neue **`assets/config.js`** exportiert `APP_BASE`, abgeleitet aus `import.meta.url` (single source of truth, robust auch ohne `<base>`-Tag)
+- `assets/api.js`: `BASE = APP_BASE + 'api'` statt hartkodiertem `/api`
+- `assets/app.js`: `getRoutePath()` strippt `APP_BASE` von `location.pathname` vor dem Routen-Match; `navigate(routePath)` prependet base. Click-Handler nutzt `link.pathname` (vom Browser gegen `<base>` aufgelöst).
+- Alle Views: `href="/foo"` → `href="foo"` (base-relativ)
+- `.htaccess`: `RewriteRule ^api/ - [L]` (relatives Pattern, ohne führenden Slash) statt `RewriteCond %{REQUEST_URI} ^/api/`. Wird per-directory gegen die Position der .htaccess gematcht — funktioniert in jedem Mount.
+- PHP-Backend bleibt mount-agnostisch: `__DIR__`-basierte Pfade, Regex `#/api/rezepte(?:\.php)?/(\d+)$#` matcht beide Varianten
+- **Verifiziert**: parallele Deployments unter `/` und `/test_subdir/` mit gleicher Codebase, eigene DB pro Mount, alle Endpunkte (GET-Liste/Detail, POST-Upload mit dry-run, PUT, DELETE, Einkaufsliste) sowie SPA-Routes (`/`, `/upload`, `/rezept/{id}`, `/rezept/{id}/bearbeiten`, `/einkaufsliste`, `/einkaufsliste/rezepte`) jeweils funktional
 
 ### 2026-05-05 — Einkaufsliste: „Komplette Rezepte" inline statt Navigation
 

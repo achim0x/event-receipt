@@ -163,7 +163,7 @@ export async function renderRezeptePrint(root) {
     if (!cartItems.length) {
         root.innerHTML = `
             <section>
-                <p class="muted">Keine Rezepte ausgewählt. <a href="/einkaufsliste" data-link>Zurück zur Einkaufsliste</a></p>
+                <p class="muted">Keine Rezepte ausgewählt. <a href="einkaufsliste" data-link>Zurück zur Einkaufsliste</a></p>
             </section>`;
         return;
     }
@@ -175,14 +175,14 @@ export async function renderRezeptePrint(root) {
         recipes = await loadCartRecipes();
     } catch (err) {
         root.innerHTML = `<p class="error">Fehler beim Laden: ${escapeHtml(err.message)}</p>
-            <p><a href="/einkaufsliste" data-link>Zurück</a></p>`;
+            <p><a href="einkaufsliste" data-link>Zurück</a></p>`;
         return;
     }
 
     root.innerHTML = `
         <section class="print-section">
             <div class="no-print row-buttons">
-                <a href="/einkaufsliste" data-link class="btn">← Zurück</a>
+                <a href="einkaufsliste" data-link class="btn">← Zurück</a>
                 <button type="button" class="btn primary" id="do-print">🖨 Drucken / als PDF speichern</button>
                 <button type="button" class="btn" id="do-text">💾 Als .txt herunterladen</button>
             </div>

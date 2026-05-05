@@ -1,3 +1,4 @@
+import { APP_BASE } from './config.js';
 import { renderRezeptListe, renderRezeptDetail, renderRezeptEdit } from './views/rezepte.js';
 import { renderUpload } from './views/upload.js';
 import { renderEinkaufsliste } from './views/einkaufsliste.js';
@@ -72,17 +73,31 @@ const routes = [
 
 const app = document.getElementById('app');
 
-function navigate(path, replace = false) {
-    if (replace) {
-        history.replaceState({}, '', path);
-    } else {
-        history.pushState({}, '', path);
-    }
+const BASE_NO_TRAIL = APP_BASE.replace(/\/$/, '');
+
+function getRoutePath() {
+    // Mappt location.pathname auf eine route-relative Form, die immer mit '/' beginnt.
+    // Beispiele:
+    //   APP_BASE='/'        '/upload' → '/upload'
+    //   APP_BASE='/rezepte/' '/rezepte/upload' → '/upload'
+    //   APP_BASE='/rezepte/' '/rezepte/' oder '/rezepte' → '/'
+    const p = location.pathname;
+    if (p === BASE_NO_TRAIL || p === APP_BASE) return '/';
+    if (p.startsWith(APP_BASE)) return '/' + p.slice(APP_BASE.length);
+    return p;
+}
+
+function navigate(routePath, replace = false) {
+    // routePath ist ein route-relativer Pfad ('/upload', '/rezept/3', ...).
+    // Wir prependen die Basis, damit pushState die Mount-Position respektiert.
+    const dest = (!routePath || routePath === '/') ? APP_BASE : BASE_NO_TRAIL + routePath;
+    if (replace) history.replaceState({}, '', dest);
+    else history.pushState({}, '', dest);
     render();
 }
 
 function render() {
-    const path = location.pathname;
+    const path = getRoutePath();
     for (const { pattern, handler } of routes) {
         const m = path.match(pattern);
         if (m) {
@@ -90,16 +105,20 @@ function render() {
             return;
         }
     }
-    app.innerHTML = `<div class="empty"><h2>404 — Seite nicht gefunden</h2><p><a href="/" data-link>Zurück zur Übersicht</a></p></div>`;
+    app.innerHTML = `<div class="empty"><h2>404 — Seite nicht gefunden</h2><p><a href="." data-link>Zurück zur Übersicht</a></p></div>`;
 }
 
 document.addEventListener('click', (e) => {
     const link = e.target.closest('a[data-link]');
     if (!link) return;
     const href = link.getAttribute('href');
-    if (!href || href.startsWith('http')) return;
+    if (!href || /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('//')) return;
     e.preventDefault();
-    navigate(href);
+    // link.pathname ist vom Browser bereits gegen <base> aufgelöst — z.B.
+    // <a href="upload"> in /rezepte/ → link.pathname = '/rezepte/upload'.
+    // Wir schieben diesen vollen Pfad direkt in die History.
+    history.pushState({}, '', link.pathname);
+    render();
 });
 
 window.addEventListener('popstate', render);

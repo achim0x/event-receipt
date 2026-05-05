@@ -1,4 +1,6 @@
-const BASE = '/api';
+import { APP_BASE } from './config.js';
+
+const BASE = APP_BASE + 'api';
 
 async function handle(res) {
     const text = await res.text();

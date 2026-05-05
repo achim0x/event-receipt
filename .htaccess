@@ -1,16 +1,19 @@
 RewriteEngine On
 
-# /api/* wird direkt durch PHP serviert
-RewriteCond %{REQUEST_URI} ^/api/
-RewriteRule ^ - [L]
+# /api/* direkt durch PHP serviert.
+# Relatives Pattern (kein führender Slash) — funktioniert sowohl im Root
+# als auch in jedem Unterverzeichnis, weil mod_rewrite per-directory
+# das Pattern relativ zum .htaccess-Verzeichnis matcht.
+RewriteRule ^api/ - [L]
 
-# Statische Dateien (assets, etc.) direkt liefern
+# Statische Dateien direkt liefern
 RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d
 RewriteRule ^ - [L]
 
-# Alles andere -> SPA
-RewriteRule ^ index.html [L]
+# Alles andere → SPA. index.php setzt das <base> Tag dynamisch
+# anhand der eigenen Position im Filesystem.
+RewriteRule ^ index.php [L]
 
 # JSON Uploads bis 1MB
 php_value upload_max_filesize 2M

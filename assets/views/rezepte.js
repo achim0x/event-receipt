@@ -71,11 +71,11 @@ export async function renderRezeptListe(root) {
 
     function renderListe(rezepte) {
         if (!rezepte.length) {
-            listeEl.innerHTML = `<p class="muted">Keine Rezepte gefunden. <a href="/upload" data-link>Lade dein erstes Rezept hoch.</a></p>`;
+            listeEl.innerHTML = `<p class="muted">Keine Rezepte gefunden. <a href="upload" data-link>Lade dein erstes Rezept hoch.</a></p>`;
             return;
         }
         listeEl.innerHTML = rezepte.map(r => `
-            <a class="card" href="/rezept/${r.id}" data-link>
+            <a class="card" href="rezept/${r.id}" data-link>
                 <h3>${escapeHtml(r.titel)}</h3>
                 ${r.kategorie ? `<span class="tag">${escapeHtml(r.kategorie)}</span>` : ''}
                 ${r.zubereitungszeit ? `<p class="muted">⏱ ${escapeHtml(r.zubereitungszeit)}</p>` : ''}
@@ -96,7 +96,7 @@ export async function renderRezeptDetail(root, id) {
     try {
         rezept = await api.getRezept(id);
     } catch (err) {
-        root.innerHTML = `<p class="error">Fehler: ${escapeHtml(err.message)}</p><p><a href="/" data-link>Zurück</a></p>`;
+        root.innerHTML = `<p class="error">Fehler: ${escapeHtml(err.message)}</p><p><a href="." data-link>Zurück</a></p>`;
         return;
     }
 
@@ -112,7 +112,7 @@ export async function renderRezeptDetail(root, id) {
 
     root.innerHTML = `
         <article class="rezept">
-            <p><a href="/" data-link>← Zurück zur Übersicht</a></p>
+            <p><a href="." data-link>← Zurück zur Übersicht</a></p>
             <h1>${escapeHtml(rezept.titel)}</h1>
             <div class="meta">
                 ${rezept.kategorie ? `<span class="tag">${escapeHtml(rezept.kategorie)}</span>` : ''}
@@ -127,7 +127,7 @@ export async function renderRezeptDetail(root, id) {
                 <button id="add-cart" type="button" class="btn primary">
                     ${inCart ? '✓ In Einkaufsliste — Personen aktualisieren' : '+ Zur Einkaufsliste'}
                 </button>
-                <a href="/rezept/${rezept.id}/bearbeiten" data-link class="btn">✎ Bearbeiten</a>
+                <a href="rezept/${rezept.id}/bearbeiten" data-link class="btn">✎ Bearbeiten</a>
                 <button id="delete-rezept" type="button" class="btn danger">🗑 Löschen</button>
             </div>
 
@@ -197,7 +197,7 @@ export async function renderRezeptEdit(root, id) {
     try {
         rezept = await api.getRezept(id);
     } catch (err) {
-        root.innerHTML = `<p class="error">Fehler: ${escapeHtml(err.message)}</p><p><a href="/" data-link>Zurück</a></p>`;
+        root.innerHTML = `<p class="error">Fehler: ${escapeHtml(err.message)}</p><p><a href="." data-link>Zurück</a></p>`;
         return;
     }
 
@@ -205,7 +205,7 @@ export async function renderRezeptEdit(root, id) {
 
     root.innerHTML = `
         <section class="rezept">
-            <p><a href="/rezept/${id}" data-link>← Zurück zum Rezept</a></p>
+            <p><a href="rezept/${id}" data-link>← Zurück zum Rezept</a></p>
             <h1>Rezept bearbeiten</h1>
             <p class="muted">JSON direkt editieren. Keys dürfen DE oder EN sein — die werden beim Speichern automatisch normalisiert.</p>
 
@@ -214,7 +214,7 @@ export async function renderRezeptEdit(root, id) {
             <div class="row-buttons">
                 <button type="button" class="btn primary" id="save">Speichern</button>
                 <button type="button" class="btn" id="reset">Zurücksetzen</button>
-                <a href="/rezept/${id}" data-link class="btn">Abbrechen</a>
+                <a href="rezept/${id}" data-link class="btn">Abbrechen</a>
             </div>
             <div id="edit-status"></div>
         </section>

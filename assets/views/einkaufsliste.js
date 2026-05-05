@@ -121,7 +121,7 @@ export function renderEinkaufsliste(root) {
                             <tbody>
                                 ${items.map(r => `
                                     <tr data-id="${r.id}">
-                                        <td><a href="/rezept/${r.id}" data-link>${escapeHtml(r.titel)}</a></td>
+                                        <td><a href="rezept/${r.id}" data-link>${escapeHtml(r.titel)}</a></td>
                                         <td><input type="number" min="1" max="999" value="${r.personen}" class="personen-input"></td>
                                         <td><button type="button" class="btn small remove">Entfernen</button></td>
                                     </tr>
@@ -136,7 +136,7 @@ export function renderEinkaufsliste(root) {
                             <button type="button" class="btn" id="clear">Alle entfernen</button>
                         </div>
                     ` : `
-                        <p class="muted">Noch keine Rezepte ausgewählt. <a href="/" data-link>Rezepte ansehen</a></p>
+                        <p class="muted">Noch keine Rezepte ausgewählt. <a href="." data-link>Rezepte ansehen</a></p>
                     `}
                 </div>
                 <div id="ergebnis"></div>
