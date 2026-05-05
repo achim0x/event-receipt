@@ -1,5 +1,5 @@
 import { api } from '../api.js';
-import { cart, navigate } from '../app.js';
+import { cart } from '../app.js';
 import { displayUnit } from '../units.js';
 
 function escapeHtml(s) {
@@ -16,7 +16,7 @@ function formatQuantity(q) {
     return n.toFixed(2).replace(/\.?0+$/, '');
 }
 
-function recipesToText(recipes) {
+export function recipesToText(recipes) {
     const lines = [];
     for (const { rezept, personen } of recipes) {
         const daten = rezept.daten || {};
@@ -85,7 +85,7 @@ function recipesToText(recipes) {
     return lines.join('\n').trimEnd() + '\n';
 }
 
-function renderRezeptHtml({ rezept, personen }) {
+export function renderRezeptHtml({ rezept, personen }) {
     const daten = rezept.daten || {};
     const groups = Array.isArray(daten.ingredients) ? daten.ingredients : [];
     const spices = (daten.spices || []).filter(Boolean);
@@ -139,9 +139,27 @@ function renderRezeptHtml({ rezept, personen }) {
     `;
 }
 
+export async function loadCartRecipes() {
+    const cartItems = cart.all();
+    const fetched = await Promise.all(cartItems.map(c => api.getRezept(c.id)));
+    return fetched.map((rezept, i) => ({ rezept, personen: cartItems[i].personen }));
+}
+
+export function downloadRecipesAsText(recipes, filename = 'rezepte.txt') {
+    const text = recipesToText(recipes);
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+}
+
 export async function renderRezeptePrint(root) {
     const cartItems = cart.all();
-
     if (!cartItems.length) {
         root.innerHTML = `
             <section>
@@ -154,8 +172,7 @@ export async function renderRezeptePrint(root) {
 
     let recipes;
     try {
-        const fetched = await Promise.all(cartItems.map(c => api.getRezept(c.id)));
-        recipes = fetched.map((rezept, i) => ({ rezept, personen: cartItems[i].personen }));
+        recipes = await loadCartRecipes();
     } catch (err) {
         root.innerHTML = `<p class="error">Fehler beim Laden: ${escapeHtml(err.message)}</p>
             <p><a href="/einkaufsliste" data-link>Zurück</a></p>`;
@@ -177,16 +194,5 @@ export async function renderRezeptePrint(root) {
     `;
 
     root.querySelector('#do-print').addEventListener('click', () => window.print());
-    root.querySelector('#do-text').addEventListener('click', () => {
-        const text = recipesToText(recipes);
-        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'rezepte.txt';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-    });
+    root.querySelector('#do-text').addEventListener('click', () => downloadRecipesAsText(recipes));
 }

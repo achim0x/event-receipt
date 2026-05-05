@@ -1,6 +1,7 @@
 import { api } from '../api.js';
 import { cart } from '../app.js';
 import { displayUnit } from '../units.js';
+import { renderRezeptHtml, downloadRecipesAsText, loadCartRecipes } from './rezepte_print.js';
 
 function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, (c) => ({
@@ -102,9 +103,7 @@ export function renderEinkaufsliste(root) {
 
     async function loadRecipes() {
         if (cachedRecipes) return cachedRecipes;
-        const items = cart.all();
-        const fetched = await Promise.all(items.map(c => api.getRezept(c.id)));
-        cachedRecipes = fetched.map((rezept, i) => ({ rezept, personen: items[i].personen }));
+        cachedRecipes = await loadCartRecipes();
         return cachedRecipes;
     }
 
@@ -114,31 +113,33 @@ export function renderEinkaufsliste(root) {
 
         root.innerHTML = `
             <section>
-                <h1>Einkaufsliste</h1>
-                ${items.length ? `
-                    <table class="cart-table">
-                        <thead><tr><th>Rezept</th><th>Personen</th><th></th></tr></thead>
-                        <tbody>
-                            ${items.map(r => `
-                                <tr data-id="${r.id}">
-                                    <td><a href="/rezept/${r.id}" data-link>${escapeHtml(r.titel)}</a></td>
-                                    <td><input type="number" min="1" max="999" value="${r.personen}" class="personen-input"></td>
-                                    <td><button type="button" class="btn small remove">Entfernen</button></td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                    <div class="row-buttons">
-                        <button type="button" class="btn primary" id="show-zutaten">Zutaten</button>
-                        <button type="button" class="btn" id="show-gewuerze">Gewürze</button>
-                        <button type="button" class="btn" id="show-equipment">Küchenausstattung</button>
-                        <a href="/einkaufsliste/rezepte" data-link class="btn">Komplette Rezepte ↗</a>
-                        <button type="button" class="btn" id="clear">Alle entfernen</button>
-                    </div>
-                    <div id="ergebnis"></div>
-                ` : `
-                    <p class="muted">Noch keine Rezepte ausgewählt. <a href="/" data-link>Rezepte ansehen</a></p>
-                `}
+                <div class="no-print">
+                    <h1>Einkaufsliste</h1>
+                    ${items.length ? `
+                        <table class="cart-table">
+                            <thead><tr><th>Rezept</th><th>Personen</th><th></th></tr></thead>
+                            <tbody>
+                                ${items.map(r => `
+                                    <tr data-id="${r.id}">
+                                        <td><a href="/rezept/${r.id}" data-link>${escapeHtml(r.titel)}</a></td>
+                                        <td><input type="number" min="1" max="999" value="${r.personen}" class="personen-input"></td>
+                                        <td><button type="button" class="btn small remove">Entfernen</button></td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                        <div class="row-buttons">
+                            <button type="button" class="btn primary" id="show-zutaten">Zutaten</button>
+                            <button type="button" class="btn" id="show-gewuerze">Gewürze</button>
+                            <button type="button" class="btn" id="show-equipment">Küchenausstattung</button>
+                            <button type="button" class="btn" id="show-rezepte">Komplette Rezepte</button>
+                            <button type="button" class="btn" id="clear">Alle entfernen</button>
+                        </div>
+                    ` : `
+                        <p class="muted">Noch keine Rezepte ausgewählt. <a href="/" data-link>Rezepte ansehen</a></p>
+                    `}
+                </div>
+                <div id="ergebnis"></div>
             </section>
         `;
 
@@ -166,6 +167,39 @@ export function renderEinkaufsliste(root) {
         root.querySelector('#show-zutaten').addEventListener('click', generateZutaten);
         root.querySelector('#show-gewuerze').addEventListener('click', generateGewuerze);
         root.querySelector('#show-equipment').addEventListener('click', generateEquipment);
+        root.querySelector('#show-rezepte').addEventListener('click', generateRezepte);
+    }
+
+    async function generateRezepte() {
+        const ergebnis = root.querySelector('#ergebnis');
+        ergebnis.innerHTML = `<p class="muted">Lade Rezepte…</p>`;
+        try {
+            const recipes = await loadRecipes();
+            if (!recipes.length) {
+                ergebnis.innerHTML = `<p class="muted">Keine Rezepte ausgewählt.</p>`;
+                return;
+            }
+
+            ergebnis.innerHTML = `
+                <div class="ergebnis print-section">
+                    <div class="no-print">
+                        <h2>Komplette Rezepte (${recipes.length})</h2>
+                        <div class="row-buttons">
+                            <button type="button" class="btn primary" data-action="print">🖨 Drucken / als PDF speichern</button>
+                            <button type="button" class="btn" data-action="text">💾 Als .txt herunterladen</button>
+                        </div>
+                    </div>
+                    <div id="recipes-print">
+                        ${recipes.map(renderRezeptHtml).join('')}
+                    </div>
+                </div>
+            `;
+
+            ergebnis.querySelector('[data-action=print]').addEventListener('click', () => window.print());
+            ergebnis.querySelector('[data-action=text]').addEventListener('click', () => downloadRecipesAsText(recipes));
+        } catch (err) {
+            ergebnis.innerHTML = `<p class="error">Fehler: ${escapeHtml(err.message)}</p>`;
+        }
     }
 
     async function generateZutaten() {

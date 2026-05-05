@@ -399,23 +399,24 @@ Output-Buttons:
 | Zutaten | `POST /api/einkaufsliste.php` | Skalierung pro Personen, gleiche `name`+`unit` summieren, gruppiert | Copy / `einkaufsliste.txt` |
 | Gewürze | Client-Aggregation aus `daten.spices` aller Cart-Rezepte | Union, case-insensitive Dedup, alphabetisch | Copy / `gewuerze.txt` |
 | Küchenausstattung | Client-Aggregation aus `daten.kitchen_equipment` | Union nach `name` (case-insensitive); Quantity ist **Maximum** über Rezepte (kein Aufsummieren — Geräte werden wiederverwendet) | Copy / `kuechenausstattung.txt` |
-| Komplette Rezepte ↗ | Link auf `/einkaufsliste/rezepte` | siehe `renderRezeptePrint` | dort |
+| Komplette Rezepte | Lädt alle Cart-Rezepte (`loadCartRecipes`) und rendert sie inline mit `renderRezeptHtml` (skaliert nach Personenzahl) | Drucken/PDF (`window.print()`) / `rezepte.txt` |
 
 Das Ergebnis wird in einem gemeinsamen `<div id="ergebnis">` Bereich
 gerendert — jeder Klick ersetzt den Inhalt. Geladene Volldaten werden
-zwischen den Aggregations-Buttons gecached (bis Personenzahl geändert
-oder Rezept entfernt wird).
+zwischen den Buttons gecached (bis Personenzahl geändert oder Rezept
+entfernt wird).
 
-**`renderRezeptePrint`** (Route `/einkaufsliste/rezepte`) — Lädt alle
-Cart-Rezepte parallel via `Promise.all(getRezept)`, rendert sie skaliert
-nach Personenzahl in print-freundlichem Layout (Titel, Meta, Zutaten,
-Gewürze, Zubereitung, Tipps, Küchenausstattung). Buttons:
-- "🖨 Drucken / als PDF speichern" → `window.print()`. Print-CSS in
-  `style.css` blendet Header/Footer/Buttons aus und setzt
-  Seitenumbrüche zwischen Rezepten.
-- "💾 Als .txt herunterladen" → `rezepte.txt` mit ASCII-formatierten Sektionen.
+**Print-Verhalten**: Cart-Tabelle und Toolbar sind mit `.no-print`
+markiert. Wenn der Benutzer auf der Einkaufsliste-Seite "🖨 Drucken"
+klickt während der Rezept-Ansicht, blendet die Print-CSS Header,
+Footer, Cart-Tabelle, alle Action-Buttons und das `h2` aus — gedruckt
+wird nur die Rezeptsammlung selbst, mit Seitenumbruch zwischen
+Rezepten.
 
-Buttons sind mit `class="no-print"` markiert — die Print-CSS regelt deren Sichtbarkeit.
+**`renderRezeptePrint`** (Route `/einkaufsliste/rezepte`) — Standalone-
+Vollansicht; nutzt dieselben Helper (`loadCartRecipes`,
+`renderRezeptHtml`, `downloadRecipesAsText`). Wird vom Hauptflow nicht
+mehr verlinkt, ist aber als Direkt-URL erreichbar (z. B. für Bookmarks).
 
 ### Fetch-Wrapper (`assets/api.js`)
 
@@ -500,6 +501,13 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 - `mb_strtolower`-Fallback auf `strtolower` in `einkaufsliste.php`
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
+
+### 2026-05-05 — Einkaufsliste: „Komplette Rezepte" inline statt Navigation
+
+- Aus dem `<a href="/einkaufsliste/rezepte">`-Link wurde ein `<button id="show-rezepte">`, der die Rezepte **inline** im `#ergebnis`-Bereich anzeigt — konsistent mit den anderen drei Buttons (Zutaten/Gewürze/Equipment). Vorher war es ein Link auf eine separate Seite, was die UX inkonsistent machte und sich „nicht implementiert" anfühlte.
+- Helper aus `views/rezepte_print.js` exportiert (`renderRezeptHtml`, `recipesToText`, `loadCartRecipes`, `downloadRecipesAsText`) und sowohl von der Einkaufsliste als auch der Standalone-Print-Route genutzt — Single Source of Truth fürs Recipe-Rendering.
+- Cart-Tabelle und Toolbar sind jetzt mit `.no-print` markiert, damit beim Drucken aus der Inline-Ansicht nur die Rezepte erscheinen.
+- Standalone-Route `/einkaufsliste/rezepte` bleibt erhalten (für Bookmarks / Direkt-URLs), wird aber nicht mehr verlinkt.
 
 ### 2026-05-05 — Einkaufsliste: Gewürze, Küchenausstattung, Rezept-Export
 
