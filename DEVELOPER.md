@@ -554,6 +554,12 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
 
+### 2026-05-06 — README.md (Installations-Anleitung, EN)
+
+- Neue **`README.md`** auf Englisch für Operators/Deployer (Requirements, Step-by-step Install, Common Pitfalls, Update/Uninstall, Verlinkung auf DEVELOPER.md für tiefergehende Doku)
+- Stolperstein „PHP-Version-Mismatch zwischen CLI und Web-SAPI" prominent dokumentiert (Hauptursache des „could not find driver"-Fehlers in der Praxis: `php-sqlite3` für eine andere Version installiert als die, die Apache lädt)
+- README explizit als Living Document — bei Setup-/Dependency-Änderungen mitzupflegen, analog DEVELOPER.md bei Code-Änderungen
+
 ### 2026-05-05 — Mount-Point-Unabhängigkeit (Subdirectory-Deployment)
 
 - App funktioniert jetzt unverändert in jedem Unterverzeichnis (`/`, `/rezepte/`, `/apps/foo/`, …)
