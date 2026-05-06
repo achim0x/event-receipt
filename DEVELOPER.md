@@ -291,16 +291,30 @@ Body:
 Logik:
 1. Rezepte zu den IDs aus DB laden
 2. Pro Rezept Mengen mit `personen / 1` multiplizieren (Basis = 1 Person)
-3. Gleiche Items (Match auf `name` + `unit`, case-insensitive) summieren —
-   gruppiert pro `group`-Feld, **innerhalb der jeweiligen Gruppe** zusammengefasst
-4. Pro Gruppe alphabetisch nach `name` sortieren, Gruppen alphabetisch
+3. Gleiche Items (Match auf `name` + `unit`, case-insensitive) **über
+   alle Rezepte und alle Rezept-internen Gruppen hinweg** summieren.
+   Die `group`-Information aus den Rezepten wird bewusst ignoriert —
+   sie strukturiert das Kochen ("Teig", "Käse", "Hauptzutaten"), ist
+   aber für den Einkauf irrelevant: man kauft 1× Mehl, egal ob es im
+   Rezept zum Teig oder zur Soße gehört.
+4. Alphabetisch nach `name` sortieren
+
+Antwort behält das Listen-Format aus historischen Gründen
+(Array von Gruppen-Objekten), enthält aber genau einen Eintrag mit
+leerer `group`:
 
 ```json
 { "liste": [
-  { "group": "Hauptzutaten",
-    "items": [ { "quantity": 400, "unit": "g", "name": "Spaghetti" } ] }
+  { "group": "",
+    "items": [
+      { "quantity": 2, "unit": "Pcs", "name": "Ei" },
+      { "quantity": 500, "unit": "g", "name": "Mehl" }
+    ] }
 ] }
 ```
+
+Das Frontend rendert bei leerem `group`-String keinen `<h3>`-Header
+und zeigt nur eine flache `<ul>`-Liste.
 
 ### Method-Override
 
@@ -452,7 +466,7 @@ Output-Buttons:
 
 | Button | Quelle | Logik | Export |
 |---|---|---|---|
-| Zutaten | `POST /api/einkaufsliste.php` | Skalierung pro Personen, gleiche `name`+`unit` summieren, gruppiert | Copy / `einkaufsliste.txt` |
+| Zutaten | `POST /api/einkaufsliste.php` | Skalierung pro Personen, gleiche `name`+`unit` über alle Rezepte und Rezept-Gruppen hinweg summieren — flache Liste (Rezept-`group` wird ignoriert, sie ist Koch-, keine Einkaufs-Struktur) | Copy / `einkaufsliste.txt` |
 | Gewürze | Client-Aggregation aus `daten.spices` aller Cart-Rezepte | Union, case-insensitive Dedup, alphabetisch | Copy / `gewuerze.txt` |
 | Küchenausstattung | Client-Aggregation aus `daten.kitchen_equipment` | Union nach `name` (case-insensitive); Quantity ist **Maximum** über Rezepte (kein Aufsummieren — Geräte werden wiederverwendet) | Copy / `kuechenausstattung.txt` |
 | Komplette Rezepte | Lädt alle Cart-Rezepte (`loadCartRecipes`) und rendert sie inline mit `renderRezeptHtml` (skaliert nach Personenzahl) | Drucken/PDF (`window.print()`) / `rezepte.txt` |
@@ -557,6 +571,12 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 - `mb_strtolower`-Fallback auf `strtolower` in `einkaufsliste.php`
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
+
+### 2026-05-06 — Einkaufsliste: Aggregation über Rezept-Gruppen hinweg
+
+- **Bug-Fix**: Die Zutaten-Aggregation in `einkaufsliste.php` hatte vorher die Rezept-interne `group` (z.B. "Teig", "Hauptzutaten") als Teil des Aggregations-Keys. Folge: gleiche Zutat (z.B. Ei) aus zwei Rezepten mit unterschiedlicher Gruppen-Zuordnung wurde nicht zusammengefasst — die Einkaufsliste zeigte sie zweimal.
+- Neuer Aggregations-Key: nur `name + unit` (case-insensitiv). `group` wird ignoriert. Die Rezept-Gruppe ist eine Kochstruktur ("für den Teig", "für die Soße") und für den Einkauf unbrauchbar.
+- Output ist jetzt eine flache, alphabetisch sortierte Liste. Antwort-Format kompatibel: `{ "liste": [{ "group": "", "items": [...] }] }` — Frontend rendert bei leerer Gruppe ohne Header.
 
 ### 2026-05-06 — Upload-View: Template-Download + KI-Prompt
 

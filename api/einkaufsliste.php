@@ -41,6 +41,11 @@ $stmt = $db->prepare("SELECT id, daten FROM rezepte WHERE id IN ($placeholders)"
 $stmt->execute($ids);
 $rows = $stmt->fetchAll();
 
+// Aggregation: name + unit (case-insensitiv). Die Rezept-interne `group`
+// (z.B. "Teig", "Hauptzutaten") wird bewusst ignoriert — sie ist eine
+// Kochstruktur-Information ohne Bedeutung für den Einkauf. So werden
+// gleiche Zutaten aus verschiedenen Rezepten unabhängig von ihrer
+// recipe-internen Gruppierung zu einer Position zusammengefasst.
 $aggregat = [];
 
 foreach ($rows as $row) {
@@ -55,7 +60,6 @@ foreach ($rows as $row) {
         if (!is_array($gruppe)) {
             continue;
         }
-        $groupName = (string) ($gruppe['group'] ?? '');
         $items = $gruppe['items'] ?? [];
         if (!is_array($items)) {
             continue;
@@ -74,11 +78,10 @@ foreach ($rows as $row) {
 
             $lowerName = function_exists('mb_strtolower') ? mb_strtolower($name) : strtolower($name);
             $lowerUnit = function_exists('mb_strtolower') ? mb_strtolower($unit) : strtolower($unit);
-            $key = $groupName . '||' . $lowerName . '||' . $lowerUnit;
+            $key = $lowerName . '||' . $lowerUnit;
 
             if (!isset($aggregat[$key])) {
                 $aggregat[$key] = [
-                    'group' => $groupName,
                     'name' => $name,
                     'unit' => $unit,
                     'quantity' => 0.0,
@@ -89,31 +92,26 @@ foreach ($rows as $row) {
     }
 }
 
-$gruppiert = [];
+$items = [];
 foreach ($aggregat as $entry) {
-    $g = $entry['group'];
-    if (!isset($gruppiert[$g])) {
-        $gruppiert[$g] = [];
-    }
     $menge = $entry['quantity'];
     if (abs($menge - round($menge)) < 0.001) {
         $menge = (int) round($menge);
     } else {
         $menge = round($menge, 2);
     }
-    $gruppiert[$g][] = [
+    $items[] = [
         'quantity' => $menge,
         'unit' => $entry['unit'],
         'name' => $entry['name'],
     ];
 }
 
-ksort($gruppiert, SORT_NATURAL | SORT_FLAG_CASE);
+usort($items, fn($a, $b) => strcasecmp($a['name'], $b['name']));
 
-$liste = [];
-foreach ($gruppiert as $group => $items) {
-    usort($items, fn($a, $b) => strcasecmp($a['name'], $b['name']));
-    $liste[] = ['group' => $group, 'items' => $items];
-}
+// Antwort behält das bestehende Listen-Format bei (Array von Gruppen-
+// Objekten), aber mit genau einem Eintrag mit leerer group — das
+// Frontend rendert dann einen flachen <ul> ohne Gruppen-Header.
+$liste = $items ? [['group' => '', 'items' => $items]] : [];
 
 json_response(['liste' => $liste]);
