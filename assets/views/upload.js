@@ -21,6 +21,12 @@ export function renderUpload(root) {
         <section>
             <h1>Rezept hochladen</h1>
             <p class="muted">Lade eine JSON-Datei mit deutschem oder englischem Schema hoch (max. 1 MB). Einheiten werden automatisch normalisiert (kg→g, L→ml, EL→g, TL→g, Stück→Pcs, Packung→Pck).</p>
+            <p class="muted">Du brauchst eine Vorlage? <a href="recipe_template.json" download>📄 recipe_template.json herunterladen</a> — leeres Gerüst mit allen unterstützten Feldern.</p>
+            <p class="muted">💡 Tipp: Eine KI kann das JSON aus einer Rezeptseite für dich erzeugen. Lade <code>recipe_template.json</code> bei ChatGPT / Claude / Gemini etc. als Datei mit hoch und nutze einen Prompt wie:</p>
+            <div class="prompt-box">
+                <code id="ai-prompt-text">Extrahier von dieser webseite das rezept als text und stelle es auf basis der hochgeladenen recipe_template.json zur verfügung</code>
+                <button type="button" class="btn small" id="copy-prompt">📋 Kopieren</button>
+            </div>
 
             <div id="dropzone" class="dropzone">
                 <p><strong>JSON-Datei hierher ziehen</strong></p>
@@ -40,6 +46,19 @@ export function renderUpload(root) {
     const fileInput = root.querySelector('#file-input');
     const preview = root.querySelector('#preview');
     const status = root.querySelector('#status');
+    const copyPromptBtn = root.querySelector('#copy-prompt');
+
+    copyPromptBtn.addEventListener('click', async () => {
+        const text = root.querySelector('#ai-prompt-text').textContent;
+        try {
+            await navigator.clipboard.writeText(text);
+            const original = copyPromptBtn.textContent;
+            copyPromptBtn.textContent = '✓ Kopiert';
+            setTimeout(() => { copyPromptBtn.textContent = original; }, 1500);
+        } catch {
+            alert('Kopieren fehlgeschlagen — bitte manuell auswählen.');
+        }
+    });
 
     let currentFile = null;
     let currentPreviewObj = null;

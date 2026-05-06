@@ -434,8 +434,12 @@ werden im Frontend live skaliert. Buttons:
 Abbrechen. Beim Speichern wird `cart`-Eintrag mit aktualisiertem Titel
 neu eingetragen, falls das Rezept dort liegt.
 
-**`renderUpload`** — Drag&Drop oder File-Picker. Nach Auswahl wird
-**automatisch ein dry-run** an `/api/upload.php?dry_run=1` geschickt;
+**`renderUpload`** — Drag&Drop oder File-Picker. Header-Hinweise:
+(1) Download-Link auf `recipe_template.json` (base-relativ, mit
+`download`-Attribut → direkter Filesystem-Download statt Browser-
+Anzeige). (2) Beispiel-KI-Prompt zur Rezept-Extraktion aus Webseiten,
+mit Copy-to-Clipboard-Button. Nach Auswahl wird **automatisch ein
+dry-run** an `/api/upload.php?dry_run=1` geschickt;
 das normalisierte Rezept wird mit `displayUnit()`-übersetzten
 Einheiten angezeigt. Warnungen (z. B. neue Kategorie) erscheinen in
 einer gelben Box mit Hinweis „Du kannst trotzdem speichern". Erst
@@ -553,6 +557,11 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 - `mb_strtolower`-Fallback auf `strtolower` in `einkaufsliste.php`
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
+
+### 2026-05-06 — Upload-View: Template-Download + KI-Prompt
+
+- Upload-Seite hat jetzt einen Hinweis mit Download-Link auf `recipe_template.json` (base-relativ + `download`-Attribut → direkter File-Download statt Browser-Anzeige). Senkt die Einstiegshürde für neue Nutzer, die ohne Vorlage nicht wissen, welche Felder erlaubt sind.
+- Zusätzlich Beispiel-KI-Prompt zur Rezept-Extraktion aus Webseiten in einer `prompt-box` mit Copy-to-Clipboard-Button. Workflow: Template + Webseiten-URL bei einer KI hochladen, Prompt einfügen → JSON kommt im erwarteten Format zurück.
 
 ### 2026-05-06 — Stolperstein: `attempt to write a readonly database`
 
