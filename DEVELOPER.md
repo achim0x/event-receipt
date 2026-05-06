@@ -515,7 +515,7 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 | `500 — json_decode(): … false given` beim Upload | `translation_map.json` für `www-data` nicht lesbar | `chmod 644 translation_map.json` |
 | `404` auf `/rezept/1`, `/upload` etc. | `.htaccess` wird nicht ausgewertet | `AllowOverride All` für `/var/www/` setzen |
 | `500 — undefined function mb_strtolower()` | `mbstring` fehlt | bereits per Fallback auf `strtolower()` abgefangen — `mbstring` ist optional |
-| `unable to open database file` | `data/` nicht beschreibbar für Apache | `chmod 777 data/` (oder `chown www-data data/`) |
+| `unable to open database file` ODER `attempt to write a readonly database` | `data/` nicht beschreibbar für Apache. Letztere Meldung ist trügerisch: SQLite meint nicht die DB-Datei sondern das Verzeichnis (für die Journal-Datei `*.db-journal` / `-wal` / `-shm`). | `sudo chown -R www-data:www-data data/ && sudo chmod 775 data/`. Häufig nach Deploy als non-Apache-User: Apache kann beim ersten Request die DB anlegen (Journal initial nicht nötig), aber spätere Writes brauchen Verzeichnisrechte. |
 | Detail-Endpunkt liefert Liste statt Einzel-Rezept | Pfad-Regex matcht nicht | aktueller Regex matcht `/api/rezepte/{id}` UND `/api/rezepte.php/{id}` |
 | Cart enthält gelöschtes Rezept | Cart wird auf Server-Seite nicht synchronisiert | Frontend ruft `cart.remove()` nach `DELETE` auf — bei direkten DB-Eingriffen muss man im Browser localStorage manuell leeren |
 | Upload bricht mit "Unbekannte Einheit" ab | Einheit ist nicht in der Map (siehe 5.2) | Entweder JSON anpassen (z. B. `Stk` → `Stück`), oder `unit_normalization_map()` in `api/translation.php` ergänzen + ggf. `translation_map.json` aktualisieren |
@@ -553,6 +553,12 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 - `mb_strtolower`-Fallback auf `strtolower` in `einkaufsliste.php`
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
+
+### 2026-05-06 — Stolperstein: `attempt to write a readonly database`
+
+- Sektion 10 (Stolpersteine) und README "Common pitfalls" um die alternative SQLite-Fehlermeldung erweitert
+- Diese Variante kommt typischerweise **nachdem** die DB schon existiert, wenn Apache (`www-data`) keine Schreibrechte aufs `data/`-Verzeichnis hat: SQLite kann die Journal-Datei nicht anlegen
+- Häufig nach Deploy via SCP/Git als persönlicher User — Verzeichnis-Owner bleibt der Deploy-User, Apache kommt nicht zum Schreiben
 
 ### 2026-05-06 — README.md (Installations-Anleitung, EN)
 

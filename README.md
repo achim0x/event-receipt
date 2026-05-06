@@ -155,10 +155,27 @@ sudo systemctl reload apache2
 Set `AllowOverride All` for the install directory (step 4 above) and
 reload Apache.
 
-### `unable to open database file`
+### `unable to open database file` or `attempt to write a readonly database`
 
-The `data/` directory is not writable by Apache's user (`www-data` on
-Debian/Ubuntu). Re-run the `chmod`/`chown` commands from step 3.
+Both messages mean the same thing in practice: the `data/` directory
+or the SQLite file isn't writable by Apache's user (`www-data` on
+Debian/Ubuntu).
+
+The misleading "readonly database" wording is SQLite's way of saying
+it can't create its journal file (`rezepte.db-journal` / `-wal` /
+`-shm`) next to the DB — which requires **directory** write access,
+not just file access. Re-running step 3 fixes both:
+
+```bash
+sudo chown -R www-data:www-data <install-dir>/data
+sudo chmod 775 <install-dir>/data
+sudo chmod 664 <install-dir>/data/rezepte.db   # if it already exists
+```
+
+A common trigger is uploading the app as a non-Apache user — Apache
+creates the DB file successfully (because it can write into a
+temporarily-loose directory), but later writes fail because the
+directory ownership stays with the deploy user.
 
 ### Upload fails with `500 — could not read translation_map.json`
 
