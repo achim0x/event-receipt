@@ -159,6 +159,7 @@ export function downloadRecipesAsText(recipes, filename = 'rezepte.txt') {
 }
 
 export async function renderRezeptePrint(root) {
+    await cart.refresh();
     const cartItems = cart.all();
     if (!cartItems.length) {
         root.innerHTML = `

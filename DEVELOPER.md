@@ -51,10 +51,12 @@ chmod 777 data/        # Apache muss SQLite-DB anlegen können
 │   ├── translation.php         # DE→EN Keys + Einheiten-Normalisierung + Validierung
 │   ├── rezepte.php             # GET-Liste, GET-Einzeln, PUT, DELETE
 │   ├── upload.php              # POST (multipart oder raw JSON) → dry_run / INSERT
-│   └── einkaufsliste.php       # POST → aggregierte Einkaufsliste
+│   ├── einkaufsliste.php       # POST → aggregierte Zutatenliste
+│   ├── cart.php                # GET / PUT — geteilter aktueller Cart (Singleton)
+│   └── saved_lists.php         # GET / POST / DELETE — benannte gespeicherte Listen
 ├── assets/
 │   ├── config.js               # APP_BASE — aus import.meta.url abgeleitet
-│   ├── app.js                  # Router + Cart-State (localStorage)
+│   ├── app.js                  # Router + Cart-State (server-backed, lokal gemirrort)
 │   ├── api.js                  # Fetch-Wrapper, BASE = APP_BASE + 'api'
 │   ├── units.js                # displayUnit() — Pcs→Stück, Pck→Packung
 │   ├── style.css
@@ -85,6 +87,22 @@ CREATE TABLE IF NOT EXISTS rezepte (
 );
 CREATE INDEX IF NOT EXISTS idx_titel ON rezepte(titel);
 CREATE INDEX IF NOT EXISTS idx_kategorie ON rezepte(kategorie);
+
+-- Geteilte aktuelle Einkaufsliste (Singleton — genau eine Zeile id=1)
+CREATE TABLE IF NOT EXISTS einkaufsliste_aktuell (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    items TEXT NOT NULL DEFAULT '[]',  -- JSON: [{id, titel, personen}]
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+INSERT OR IGNORE INTO einkaufsliste_aktuell (id, items) VALUES (1, '[]');
+
+-- Benannte gespeicherte Listen
+CREATE TABLE IF NOT EXISTS einkaufsliste_gespeichert (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    items TEXT NOT NULL,
+    gespeichert_am DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
 **Konvention**: `daten` enthält das vollständige Rezept-JSON mit EN-Keys.
@@ -316,6 +334,76 @@ leerer `group`:
 Das Frontend rendert bei leerem `group`-String keinen `<h3>`-Header
 und zeigt nur eine flache `<ul>`-Liste.
 
+### `GET /api/cart.php`
+
+Liefert die geteilte aktuelle Einkaufsliste (Singleton, von allen Nutzern
+gemeinsam editiert):
+
+```json
+{
+  "items": [
+    { "id": 3, "titel": "Spaghetti Carbonara", "personen": 4 }
+  ],
+  "updated_at": "2026-05-06 22:05:09"
+}
+```
+
+### `PUT /api/cart.php`
+
+Ersetzt die aktuelle Liste. Body:
+
+```json
+{ "items": [ { "id": 3, "titel": "...", "personen": 4 } ] }
+```
+
+Server sanitiziert: nur `id`, `titel`, `personen` werden behalten;
+`personen` wird auf min. 1 geclamped; Items ohne `id` werden verworfen.
+Max. 100 KB.
+
+**Race-Condition**: Last-Write-Wins. Mehrere parallel editierende Tabs
+können sich gegenseitig überschreiben — für den Use-Case "kleiner
+Haushalt teilt eine Liste" akzeptabel.
+
+### `GET /api/saved_lists.php`
+
+Listet alle benannten gespeicherten Listen (Metadata, ohne Items):
+
+```json
+{
+  "listen": [
+    { "name": "Wochenplan KW18", "gespeichert_am": "...", "count": 5 }
+  ]
+}
+```
+
+### `GET /api/saved_lists.php?name=<name>`
+
+Lädt eine einzelne Liste mit allen Items:
+
+```json
+{ "name": "...", "gespeichert_am": "...", "items": [...] }
+```
+
+`404` wenn nicht vorhanden.
+
+### `POST /api/saved_lists.php`
+
+Speichert eine Liste unter einem Namen. Body: `{name, items}`. Existiert
+der Name bereits → **Upsert** (überschreibt). Name max. 80 Zeichen,
+Body max. 100 KB.
+
+```json
+{ "success": true, "name": "Wochenplan KW18", "count": 2 }
+```
+
+### `DELETE /api/saved_lists.php?name=<name>`
+
+Löscht. `404` wenn nicht vorhanden.
+
+```json
+{ "success": true, "name": "..." }
+```
+
 ### Method-Override
 
 Falls Apache PUT/DELETE blockiert (z. B. restriktive Konfigs), akzeptiert
@@ -407,15 +495,33 @@ Konfiguration nötig.
 
 ### Router & State (`assets/app.js`)
 
-Globaler State minimal — nur die Einkaufsliste:
+Globaler State minimal — nur die Einkaufsliste, **server-backed** mit
+lokalem Mirror:
 
 ```js
-const state = { einkaufsliste: [] };  // [{ id, titel, personen }]
+let cartState = [];  // [{ id, titel, personen }] — vom Server geladen
 ```
 
-Persistenz via `localStorage` unter Key `rezepte.einkaufsliste.v1`. Der
-Cart wird über das exportierte `cart`-Objekt manipuliert (`add`,
-`remove`, `setPersonen`, `clear`, `has`, `all`).
+**Sync-Strategie**:
+- Beim App-Start: `await initCart()` holt den aktuellen Stand vom Server
+  (`GET /api/cart.php`). One-time-migration: falls localStorage unter dem
+  alten Key `rezepte.einkaufsliste.v1` Items hat und Server leer ist,
+  wird gepusht. Danach wird der localStorage-Key gelöscht.
+- Bei jedem `add`/`remove`/`setPersonen`/`clear`/`replaceAll`: optimistic
+  update lokal + **debounced PUT** an den Server (300ms). Schnelle UI,
+  Server bekommt nur einen Request pro Aktionsbündel.
+- Beim Render der Einkaufslisten- und Print-Views: `await cart.refresh()`
+  lädt erneut vom Server, damit Änderungen anderer User/Tabs sichtbar
+  werden.
+
+**Race-Condition**: Last-Write-Wins. Bewusst kein Lock, keine ETags. Für
+den geplanten Use-Case (kleiner Personenkreis teilt eine Liste)
+akzeptabel.
+
+Cart-API (vom `cart`-Objekt exportiert):
+`all()`, `has(id)`, `add(rezept, personen)`, `remove(id)`,
+`setPersonen(id, n)`, `clear()`, **`replaceAll(items)`** (für „Liste
+laden"), **`refresh()`** (frisch vom Server holen).
 
 **Routes** (`pushState`-basiert, Patterns matchen in Reihenfolge —
 spezifischere zuerst):
@@ -461,8 +567,16 @@ einer gelben Box mit Hinweis „Du kannst trotzdem speichern". Erst
 Bei Einheiten-Fehlern erscheint nur die Fehlermeldung — kein
 Speichern-Button.
 
-**`renderEinkaufsliste`** — Cart-Tabelle mit Personenzahl-Inputs. Vier
-Output-Buttons:
+**`renderEinkaufsliste`** — beim Render `await cart.refresh()` +
+`refreshSavedLists()` (Server-State frisch holen). Drei Bereiche:
+
+1. **Gespeicherte Listen** (`<details>`-Sektion oben, default-open wenn
+   Listen vorhanden): Tabelle Name / Anzahl / Datum mit `📂 Laden` und
+   `🗑` pro Zeile. „Laden" replaceAll-t den Cart (mit Confirm wenn der
+   aktuelle nicht leer ist).
+2. **Aktuelle Auswahl**: Cart-Tabelle wie bisher + „Speichern als"-Input
+   mit Confirm-Dialog beim Überschreiben eines bestehenden Namens.
+3. **Output-Buttons** für Aggregationen:
 
 | Button | Quelle | Logik | Export |
 |---|---|---|---|
@@ -571,6 +685,16 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 - `mb_strtolower`-Fallback auf `strtolower` in `einkaufsliste.php`
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
+
+### 2026-05-06 — Einkaufsliste server-backed + benannte gespeicherte Listen
+
+- **Cart ist jetzt geteilt**: Aktuelle Einkaufsliste wird serverseitig in der neuen Tabelle `einkaufsliste_aktuell` (Singleton, eine Zeile) gehalten. Alle Nutzer sehen + editieren dieselbe Liste — keine User-Verwaltung, kein Auth, einfaches Familien-Setup.
+- **Benannte gespeicherte Listen** in neuer Tabelle `einkaufsliste_gespeichert` (UNIQUE name): Aktuelle Auswahl unter einem Namen (max. 80 Zeichen) sichern, später wieder laden, oder löschen. Upsert-Verhalten beim Speichern (gleicher Name überschreibt).
+- Neue API-Endpunkte: `cart.php` (GET/PUT), `saved_lists.php` (GET-Liste / GET ?name=X / POST / DELETE ?name=X)
+- `cart`-Objekt in `app.js` neu gebaut: optimistic local-state + debounced PUT (300ms) zum Server, plus `cart.replaceAll(items)` (für „Liste laden") und `cart.refresh()` (Server frisch holen). Beim Render der Einkaufslisten-View wird automatisch refreshed.
+- One-time-localStorage-Migration: alte Carts unter Key `rezepte.einkaufsliste.v1` werden beim ersten Start auf den Server gepusht (falls Server leer) und dann aus localStorage gelöscht.
+- **Race-Condition**: Last-Write-Wins, bewusst keine Locks/ETags. Für den Use-Case akzeptabel.
+- UI: Einkaufslisten-View hat oben eine `<details>`-Sektion „Gespeicherte Listen" (Tabelle Name/Anzahl/Datum + Laden/Löschen pro Zeile). Bei der Cart-Tabelle: „Speichern als"-Input mit Confirm beim Überschreiben.
 
 ### 2026-05-06 — Einkaufsliste: Aggregation über Rezept-Gruppen hinweg
 

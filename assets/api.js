@@ -66,4 +66,44 @@ export const api = {
         });
         return handle(res);
     },
+
+    async getCart() {
+        const res = await fetch(`${BASE}/cart.php`);
+        return handle(res);
+    },
+
+    async putCart(items) {
+        const res = await fetch(`${BASE}/cart.php`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items }),
+        });
+        return handle(res);
+    },
+
+    async listSavedLists() {
+        const res = await fetch(`${BASE}/saved_lists.php`);
+        return handle(res);
+    },
+
+    async getSavedList(name) {
+        const params = new URLSearchParams({ name });
+        const res = await fetch(`${BASE}/saved_lists.php?${params}`);
+        return handle(res);
+    },
+
+    async saveCartAs(name, items) {
+        const res = await fetch(`${BASE}/saved_lists.php`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, items }),
+        });
+        return handle(res);
+    },
+
+    async deleteSavedList(name) {
+        const params = new URLSearchParams({ name });
+        const res = await fetch(`${BASE}/saved_lists.php?${params}`, { method: 'DELETE' });
+        return handle(res);
+    },
 };

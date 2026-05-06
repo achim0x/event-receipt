@@ -1,65 +1,135 @@
 import { APP_BASE } from './config.js';
+import { api } from './api.js';
 import { renderRezeptListe, renderRezeptDetail, renderRezeptEdit } from './views/rezepte.js';
 import { renderUpload } from './views/upload.js';
 import { renderEinkaufsliste } from './views/einkaufsliste.js';
 import { renderRezeptePrint } from './views/rezepte_print.js';
 
-const STORAGE_KEY = 'rezepte.einkaufsliste.v1';
+// Legacy localStorage-Key — wird einmalig beim ersten Start auf den Server
+// migriert (falls Server-Cart noch leer und localStorage Items enthält) und
+// danach gelöscht.
+const LEGACY_STORAGE_KEY = 'rezepte.einkaufsliste.v1';
 
-const state = {
-    einkaufsliste: loadCart(),
-};
-
-function loadCart() {
-    try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        const arr = raw ? JSON.parse(raw) : [];
-        return Array.isArray(arr) ? arr : [];
-    } catch {
-        return [];
-    }
-}
-
-function saveCart() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.einkaufsliste));
-    updateBadge();
-}
+let cartState = [];
+let cartInitialized = false;
+let saveTimer = null;
+const SAVE_DEBOUNCE_MS = 300;
 
 function updateBadge() {
     const badge = document.getElementById('cart-badge');
     if (!badge) return;
-    const count = state.einkaufsliste.length;
+    const count = cartState.length;
     badge.textContent = String(count);
     badge.hidden = count === 0;
 }
 
+function readLegacyCart() {
+    try {
+        const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+        const arr = raw ? JSON.parse(raw) : null;
+        return Array.isArray(arr) ? arr : null;
+    } catch {
+        return null;
+    }
+}
+
+function clearLegacyCart() {
+    try { localStorage.removeItem(LEGACY_STORAGE_KEY); } catch {}
+}
+
+async function loadCartFromServer() {
+    try {
+        const data = await api.getCart();
+        cartState = Array.isArray(data.items) ? data.items : [];
+    } catch (err) {
+        console.error('Cart laden fehlgeschlagen:', err);
+        cartState = [];
+    }
+    updateBadge();
+}
+
+async function initCart() {
+    const legacy = readLegacyCart();
+
+    try {
+        const data = await api.getCart();
+        const serverItems = Array.isArray(data.items) ? data.items : [];
+
+        if (serverItems.length === 0 && legacy && legacy.length > 0) {
+            // One-time-migration: legacy localStorage → Server
+            cartState = legacy;
+            try {
+                await api.putCart(cartState);
+            } catch (err) {
+                console.error('Legacy-Cart-Migration zum Server fehlgeschlagen:', err);
+            }
+        } else {
+            cartState = serverItems;
+        }
+    } catch (err) {
+        console.error('Cart-Init: Server-Fetch fehlgeschlagen, fallback auf legacy/leer:', err);
+        cartState = legacy || [];
+    }
+
+    clearLegacyCart();
+    cartInitialized = true;
+    updateBadge();
+}
+
+function scheduleCartSave() {
+    if (!cartInitialized) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+        try {
+            await api.putCart(cartState);
+        } catch (err) {
+            console.error('Cart-Sync zum Server fehlgeschlagen:', err);
+        }
+    }, SAVE_DEBOUNCE_MS);
+}
+
 export const cart = {
-    all: () => state.einkaufsliste.slice(),
-    has: (id) => state.einkaufsliste.some(r => r.id === id),
+    all: () => cartState.slice(),
+    has: (id) => cartState.some(r => r.id === id),
     add(rezept, personen = 1) {
         if (cart.has(rezept.id)) return false;
-        state.einkaufsliste.push({
+        cartState.push({
             id: rezept.id,
             titel: rezept.titel,
             personen: Math.max(1, parseInt(personen, 10) || 1),
         });
-        saveCart();
+        updateBadge();
+        scheduleCartSave();
         return true;
     },
     remove(id) {
-        state.einkaufsliste = state.einkaufsliste.filter(r => r.id !== id);
-        saveCart();
+        cartState = cartState.filter(r => r.id !== id);
+        updateBadge();
+        scheduleCartSave();
     },
     setPersonen(id, personen) {
-        const entry = state.einkaufsliste.find(r => r.id === id);
+        const entry = cartState.find(r => r.id === id);
         if (!entry) return;
         entry.personen = Math.max(1, parseInt(personen, 10) || 1);
-        saveCart();
+        scheduleCartSave();
     },
     clear() {
-        state.einkaufsliste = [];
-        saveCart();
+        cartState = [];
+        updateBadge();
+        scheduleCartSave();
     },
+    /** Komplette Liste durch geladene Items ersetzen — z.B. beim Laden einer gespeicherten Liste */
+    replaceAll(items) {
+        cartState = (Array.isArray(items) ? items : []).map(r => ({
+            id: parseInt(r.id, 10),
+            titel: String(r.titel || ''),
+            personen: Math.max(1, parseInt(r.personen, 10) || 1),
+        }));
+        updateBadge();
+        scheduleCartSave();
+    },
+    /** Aktuellen Stand vom Server neu laden (z.B. wenn ein anderer Tab/User editiert hat) */
+    refresh: loadCartFromServer,
 };
 
 const routes = [
@@ -76,11 +146,6 @@ const app = document.getElementById('app');
 const BASE_NO_TRAIL = APP_BASE.replace(/\/$/, '');
 
 function getRoutePath() {
-    // Mappt location.pathname auf eine route-relative Form, die immer mit '/' beginnt.
-    // Beispiele:
-    //   APP_BASE='/'        '/upload' → '/upload'
-    //   APP_BASE='/rezepte/' '/rezepte/upload' → '/upload'
-    //   APP_BASE='/rezepte/' '/rezepte/' oder '/rezepte' → '/'
     const p = location.pathname;
     if (p === BASE_NO_TRAIL || p === APP_BASE) return '/';
     if (p.startsWith(APP_BASE)) return '/' + p.slice(APP_BASE.length);
@@ -88,8 +153,6 @@ function getRoutePath() {
 }
 
 function navigate(routePath, replace = false) {
-    // routePath ist ein route-relativer Pfad ('/upload', '/rezept/3', ...).
-    // Wir prependen die Basis, damit pushState die Mount-Position respektiert.
     const dest = (!routePath || routePath === '/') ? APP_BASE : BASE_NO_TRAIL + routePath;
     if (replace) history.replaceState({}, '', dest);
     else history.pushState({}, '', dest);
@@ -114,9 +177,6 @@ document.addEventListener('click', (e) => {
     const href = link.getAttribute('href');
     if (!href || /^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('//')) return;
     e.preventDefault();
-    // link.pathname ist vom Browser bereits gegen <base> aufgelöst — z.B.
-    // <a href="upload"> in /rezepte/ → link.pathname = '/rezepte/upload'.
-    // Wir schieben diesen vollen Pfad direkt in die History.
     history.pushState({}, '', link.pathname);
     render();
 });
@@ -125,5 +185,9 @@ window.addEventListener('popstate', render);
 
 export { navigate };
 
-updateBadge();
-render();
+// Bevor wir rendern, einmal den Server-State holen — sonst zeigt z.B. die
+// Detail-View "+/✓ Im Cart" falsch.
+(async () => {
+    await initCart();
+    render();
+})();

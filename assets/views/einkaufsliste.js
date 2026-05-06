@@ -68,8 +68,6 @@ function aggregateSpices(recipes) {
 }
 
 function aggregateEquipment(recipes) {
-    // Pro Equipment-Name den größten gefundenen Bedarf nehmen — kein Aufsummieren,
-    // weil ein Topf für mehrere Rezepte typischerweise wiederverwendet wird.
     const map = new Map();
     for (const { rezept } of recipes) {
         const items = Array.isArray(rezept.daten?.kitchen_equipment)
@@ -98,13 +96,61 @@ function equipmentToText(items) {
     return items.map(e => `- ${formatQuantity(e.quantity)} × ${e.name}`).join('\n') + '\n';
 }
 
-export function renderEinkaufsliste(root) {
+export async function renderEinkaufsliste(root) {
     let cachedRecipes = null;
+    let savedLists = [];
+
+    root.innerHTML = `<p class="muted">Lade Einkaufsliste…</p>`;
+
+    // Server-State frisch holen — sonst sieht man Änderungen anderer User nicht
+    await cart.refresh();
+    await refreshSavedLists();
+
+    async function refreshSavedLists() {
+        try {
+            const data = await api.listSavedLists();
+            savedLists = Array.isArray(data.listen) ? data.listen : [];
+        } catch (err) {
+            console.error('Saved lists laden fehlgeschlagen:', err);
+            savedLists = [];
+        }
+    }
 
     async function loadRecipes() {
         if (cachedRecipes) return cachedRecipes;
         cachedRecipes = await loadCartRecipes();
         return cachedRecipes;
+    }
+
+    function renderSavedListsTable() {
+        if (!savedLists.length) {
+            return `<p class="muted">Noch keine Listen gespeichert.</p>`;
+        }
+        return `
+            <table class="cart-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Inhalt</th>
+                        <th>Gespeichert</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${savedLists.map(l => `
+                        <tr data-name="${escapeHtml(l.name)}">
+                            <td><strong>${escapeHtml(l.name)}</strong></td>
+                            <td>${l.count} Rezept${l.count === 1 ? '' : 'e'}</td>
+                            <td class="muted small">${escapeHtml(l.gespeichert_am)}</td>
+                            <td>
+                                <button type="button" class="btn small load-list">📂 Laden</button>
+                                <button type="button" class="btn small danger del-list">🗑</button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
     }
 
     function draw() {
@@ -115,7 +161,16 @@ export function renderEinkaufsliste(root) {
             <section>
                 <div class="no-print">
                     <h1>Einkaufsliste</h1>
+
+                    <details class="saved-lists-section" ${savedLists.length ? 'open' : ''}>
+                        <summary>Gespeicherte Listen (${savedLists.length})</summary>
+                        <div class="saved-lists-body">
+                            ${renderSavedListsTable()}
+                        </div>
+                    </details>
+
                     ${items.length ? `
+                        <h2>Aktuelle Auswahl</h2>
                         <table class="cart-table">
                             <thead><tr><th>Rezept</th><th>Personen</th><th></th></tr></thead>
                             <tbody>
@@ -128,6 +183,12 @@ export function renderEinkaufsliste(root) {
                                 `).join('')}
                             </tbody>
                         </table>
+                        <div class="save-as-row">
+                            <label class="save-as-label">Aktuelle Auswahl speichern als:
+                                <input type="text" id="save-name" maxlength="80" placeholder="z.B. Wochenplan KW18">
+                            </label>
+                            <button type="button" class="btn" id="save-as">💾 Speichern</button>
+                        </div>
                         <div class="row-buttons">
                             <button type="button" class="btn primary" id="show-zutaten">Zutaten</button>
                             <button type="button" class="btn" id="show-gewuerze">Gewürze</button>
@@ -142,6 +203,13 @@ export function renderEinkaufsliste(root) {
                 <div id="ergebnis"></div>
             </section>
         `;
+
+        // Saved-Lists Row-Handlers (auch wenn aktuelle Auswahl leer ist)
+        root.querySelectorAll('tr[data-name]').forEach(tr => {
+            const name = tr.dataset.name;
+            tr.querySelector('.load-list').addEventListener('click', () => loadSavedList(name));
+            tr.querySelector('.del-list').addEventListener('click', () => deleteSavedList(name));
+        });
 
         if (!items.length) return;
 
@@ -164,10 +232,60 @@ export function renderEinkaufsliste(root) {
             }
         });
 
+        const saveBtn = root.querySelector('#save-as');
+        const saveInput = root.querySelector('#save-name');
+        async function doSaveAs() {
+            const name = saveInput.value.trim();
+            if (!name) {
+                alert('Bitte einen Namen eingeben.');
+                saveInput.focus();
+                return;
+            }
+            const exists = savedLists.some(l => l.name.toLowerCase() === name.toLowerCase());
+            if (exists && !confirm(`Eine Liste mit dem Namen "${name}" existiert bereits. Überschreiben?`)) {
+                return;
+            }
+            try {
+                await api.saveCartAs(name, cart.all());
+                saveInput.value = '';
+                await refreshSavedLists();
+                draw();
+            } catch (err) {
+                alert('Speichern fehlgeschlagen: ' + err.message);
+            }
+        }
+        saveBtn.addEventListener('click', doSaveAs);
+        saveInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doSaveAs(); } });
+
         root.querySelector('#show-zutaten').addEventListener('click', generateZutaten);
         root.querySelector('#show-gewuerze').addEventListener('click', generateGewuerze);
         root.querySelector('#show-equipment').addEventListener('click', generateEquipment);
         root.querySelector('#show-rezepte').addEventListener('click', generateRezepte);
+    }
+
+    async function loadSavedList(name) {
+        if (cart.all().length > 0 &&
+            !confirm(`Die aktuelle Auswahl wird durch "${name}" ersetzt. Fortfahren?`)) {
+            return;
+        }
+        try {
+            const data = await api.getSavedList(name);
+            cart.replaceAll(data.items || []);
+            draw();
+        } catch (err) {
+            alert('Laden fehlgeschlagen: ' + err.message);
+        }
+    }
+
+    async function deleteSavedList(name) {
+        if (!confirm(`Gespeicherte Liste "${name}" löschen?`)) return;
+        try {
+            await api.deleteSavedList(name);
+            await refreshSavedLists();
+            draw();
+        } catch (err) {
+            alert('Löschen fehlgeschlagen: ' + err.message);
+        }
     }
 
     async function generateRezepte() {

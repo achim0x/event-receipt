@@ -50,3 +50,23 @@ $db->exec("
 ");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_titel ON rezepte(titel);");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_kategorie ON rezepte(kategorie);");
+
+// Singleton-Tabelle für die geteilte aktuelle Einkaufsliste — eine Zeile (id=1)
+$db->exec("
+    CREATE TABLE IF NOT EXISTS einkaufsliste_aktuell (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        items TEXT NOT NULL DEFAULT '[]',
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+");
+$db->exec("INSERT OR IGNORE INTO einkaufsliste_aktuell (id, items) VALUES (1, '[]');");
+
+// Benannte gespeicherte Einkaufslisten
+$db->exec("
+    CREATE TABLE IF NOT EXISTS einkaufsliste_gespeichert (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        items TEXT NOT NULL,
+        gespeichert_am DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+");

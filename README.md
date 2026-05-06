@@ -12,6 +12,8 @@ JavaScript framework, no Composer.
 - Print/PDF export of full recipe collections
 - JSON upload with validation, dry-run preview, and unit auto-conversion
 - Edit recipes directly via JSON editor
+- **Shared shopping list**: cart is server-backed and shared across all users (no auth — single household / small group use case)
+- **Named saved lists**: save the current cart under a name, load it back later, manage multiple saved lists
 
 **Tech Stack**
 - PHP 8.x (PDO/SQLite, JSON)
