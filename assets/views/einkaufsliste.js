@@ -2,6 +2,7 @@ import { api } from '../api.js';
 import { cart } from '../app.js';
 import { displayUnit } from '../units.js';
 import { renderRezeptHtml, downloadRecipesAsText, loadCartRecipes } from './rezepte_print.js';
+import { aggregateIngredients, aggregateSpices, aggregateEquipment } from '../aggregate.js';
 
 function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, (c) => ({
@@ -51,39 +52,6 @@ function listToText(liste) {
         lines.push('');
     }
     return lines.join('\n').trimEnd() + '\n';
-}
-
-function aggregateSpices(recipes) {
-    const seen = new Map();
-    for (const { rezept } of recipes) {
-        const spices = (rezept.daten?.spices || []).filter(Boolean);
-        for (const s of spices) {
-            const trimmed = String(s).trim();
-            if (!trimmed) continue;
-            const key = trimmed.toLowerCase();
-            if (!seen.has(key)) seen.set(key, trimmed);
-        }
-    }
-    return [...seen.values()].sort((a, b) => a.localeCompare(b, 'de'));
-}
-
-function aggregateEquipment(recipes) {
-    const map = new Map();
-    for (const { rezept } of recipes) {
-        const items = Array.isArray(rezept.daten?.kitchen_equipment)
-            ? rezept.daten.kitchen_equipment : [];
-        for (const e of items) {
-            const name = String(e.name ?? '').trim();
-            if (!name) continue;
-            const qty = typeof e.quantity === 'number' && e.quantity > 0 ? e.quantity : 1;
-            const key = name.toLowerCase();
-            const prev = map.get(key);
-            if (!prev || prev.quantity < qty) {
-                map.set(key, { quantity: qty, name });
-            }
-        }
-    }
-    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'de'));
 }
 
 function spicesToText(spices) {
@@ -369,15 +337,17 @@ export async function renderEinkaufsliste(root) {
     }
 
     async function generateZutaten() {
-        const items = cart.all();
         const ergebnis = root.querySelector('#ergebnis');
         ergebnis.innerHTML = `<p class="muted">Generiere…</p>`;
         try {
-            const [data, checks] = await Promise.all([
-                api.einkaufsliste(items.map(r => ({ id: r.id, personen: r.personen })), cart.snapshot()),
+            // Aggregation passiert client-seitig — bei aktivem Snapshot ohne
+            // jeglichen API-Call, sonst nur die per-Rezept-GETs via
+            // loadCartRecipes() (im Browser cache-fähig für Offline-Modus).
+            const [recipes, checks] = await Promise.all([
+                loadRecipes(),
                 api.getChecks(),
             ]);
-            const liste = data.liste || [];
+            const { liste } = aggregateIngredients(recipes);
             const checkedSet = new Set(checks.zutaten || []);
 
             if (!liste.length) {

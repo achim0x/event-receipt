@@ -994,6 +994,32 @@ Wer die App im Internet (statt LAN) betreibt:
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
 
+### 2026-05-11 — PWA-Phase 1: Aggregation client-seitig
+
+Vorarbeit für den Offline-Modus: die Zutaten-Aggregation wandert vom
+Server-Endpoint `api/einkaufsliste.php` als JS-Modul ins Frontend.
+
+- Neue Datei `assets/aggregate.js` mit `aggregateIngredients(recipes)`,
+  `aggregateSpices(recipes)`, `aggregateEquipment(recipes)`. Letztere beiden
+  waren bereits client-seitig in `views/einkaufsliste.js` — wurden in das
+  neue Modul übersiedelt, damit alle Aggregations-Funktionen an einem Ort
+  liegen.
+- `aggregateIngredients` ist 1:1-Portierung der PHP-Logik aus
+  `api/einkaufsliste.php`: Aggregations-Key `name_lower||unit_lower`,
+  first-seen Department gewinnt (mit „leer → nicht leer"-Aufwertung),
+  Department-Reihenfolge folgt `VALID_DEPARTMENTS`, „Sonstiges" am Ende.
+- `views/einkaufsliste.js` ruft nicht mehr `api.einkaufsliste()` auf;
+  stattdessen `loadRecipes()` + `aggregateIngredients(recipes)`. Bei
+  aktivem Snapshot zero API-Calls für die Aggregation, sonst nur die
+  per-Rezept-`getRezept()`-Aufrufe (die in Phase 2 vom Service Worker
+  gecached werden).
+- `api/einkaufsliste.php` bleibt aus Kompatibilitätsgründen erhalten —
+  wird vom Frontend aber nicht mehr genutzt. Kann später entfernt
+  werden falls externe Konsumenten keine Rolle spielen.
+- Smoke-Test: Server- und Client-Aggregation liefern bit-identisches
+  Output über mehrere Test-Szenarien (1 Rezept mit allen Departments,
+  2 Rezepte mit überlappenden Items, mixed-department-merge).
+
 ### 2026-05-11 — Security-Härtung
 
 Mehrere Schichten Hardening gegen die einschlägigen OWASP-Top-10-Vektoren:
