@@ -213,3 +213,14 @@ export { navigate };
     await initCart();
     render();
 })();
+
+// Service Worker registrieren — Mount-Point-aware (scope = APP_BASE).
+// HTTPS oder localhost ist Voraussetzung; Browser ignoriert die Registration
+// stillschweigend wenn nicht erfüllt.
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker
+            .register(APP_BASE + 'sw.js', { scope: APP_BASE })
+            .catch((err) => console.warn('Service Worker registration failed:', err));
+    });
+}

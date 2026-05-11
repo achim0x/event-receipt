@@ -221,6 +221,52 @@ or extend the map — see [DEVELOPER.md §5.2](DEVELOPER.md#52-einheiten).
 
 ---
 
+## Mobile / PWA
+
+The app is a Progressive Web App — it can be installed on the home
+screen of any modern mobile browser and works offline once the assets
+are cached.
+
+### Install on iOS
+
+1. Open the app URL in **Safari** (Chrome on iOS does not support
+   add-to-home-screen for third-party PWAs).
+2. Tap the share button (square with up-arrow).
+3. Tap **„Zum Home-Bildschirm"**.
+4. Confirm with **Hinzufügen**.
+
+The app appears as its own icon, opens in standalone mode (no Safari
+chrome), and remembers its state across launches.
+
+### Install on Android
+
+1. Open the app URL in **Chrome** (or any Chromium-based browser).
+2. Open the browser menu → **App installieren** (or „Zum
+   Startbildschirm hinzufügen").
+3. Confirm.
+
+### Offline behaviour
+
+Once installed and opened once with a working connection:
+- App shell (HTML/CSS/JS, icons) is served from the local cache and
+  works in airplane mode.
+- Recipes, the current cart and saved lists are cached from their
+  most recent online request (stale-while-revalidate). Reading
+  recipes offline works; you see the last synced state.
+- Generating the shopping list works offline as long as the recipes
+  are in the snapshot or in the cache.
+- Writing (uploading recipes, modifying the cart, saving lists)
+  requires a connection — the UI shows the offline state.
+- Phase 2 of the PWA work introduces persisted checkbox state with
+  background-sync (planned).
+
+### Replace placeholder icons
+
+The bundled icons in `assets/icons/` are minimal placeholders (single-
+colour upscaled blocks for the PNGs; a simple vector pot for the SVG).
+For production polish, replace them with proper designs — keep the
+same filenames so the manifest needs no edits.
+
 ## Security model
 
 This app is designed for a **trusted LAN / single-household** setup

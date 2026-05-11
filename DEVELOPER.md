@@ -994,6 +994,24 @@ Wer die App im Internet (statt LAN) betreibt:
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
 
+### 2026-05-11 — PWA-Phase 2: Manifest + Service Worker
+
+Die App ist ab jetzt eine installierbare Progressive Web App.
+
+- Neu: `manifest.webmanifest` mit name, theme/background-color, icons in SVG + PNG-Größen (192/512/maskable), display:standalone, start_url/scope base-relativ
+- Neu: `sw.js` im App-Root mit drei Cache-Strategien:
+  - **Navigation** (HTML) → Network-first, App-Shell-Fallback bei Offline
+  - **Statische Assets** (`assets/*`) → Cache-First
+  - **API-GETs** (`api/*`) → Stale-While-Revalidate
+  - POST/PUT/DELETE und cross-origin Requests werden transparent durchgereicht
+  - `CACHE_VERSION`-Konstante steuert das Cache-Lifecycle; alte Caches werden beim `activate`-Event aufgeräumt
+- Neu: `assets/icons/icon.svg` (Vektor, Kochtopf-Motiv in Accent-Farbe) plus PNG-Placeholder in den Standard-Größen. **Placeholders sind einfarbige Blöcke** — für Production-Polish durch echte Designs ersetzen.
+- Geändert: `index.php` mit manifest-Link, `theme-color`, iOS-Meta-Tags (`apple-mobile-web-app-capable`, status-bar-style, apple-touch-icon, viewport-fit=cover für Notch-Geräte)
+- Geändert: `assets/app.js` registriert den SW mit Mount-Point-aware Scope (`APP_BASE + 'sw.js'`)
+- Geändert: `.htaccess` mit MIME-Type für `.webmanifest` und `Cache-Control: no-cache` für `sw.js` (damit Updates schnell durchschlagen; braucht `mod_headers`)
+- Smoke-Test: Manifest valides JSON mit korrektem Content-Type, alle 5 Icon-Größen 200, alle PWA-Meta-Tags im DOM, SW-Registration im app.js
+- **Bekannte Einschränkung**: PNG-Icons sind 1×1 hochskalierte einfarbige Placeholders. Funktioniert technisch, sieht aber kacke aus. Echte Icons (z. B. exportiert aus dem SVG via Inkscape oder Online-Tool) kommen als nächstes.
+
 ### 2026-05-11 — PWA-Phase 1: Aggregation client-seitig
 
 Vorarbeit für den Offline-Modus: die Zutaten-Aggregation wandert vom
