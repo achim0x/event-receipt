@@ -70,3 +70,15 @@ $db->exec("
         gespeichert_am DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 ");
+
+// Abgehakte Einträge (geteilt zwischen allen Nutzern).
+// Schlüssel ist normalisiert (lowercase) als 'name||unit' — Match überlebt
+// Personenzahl-Änderungen (weil quantity nicht im Key steckt).
+$db->exec("
+    CREATE TABLE IF NOT EXISTS einkaufsliste_abgehakt (
+        kategorie TEXT NOT NULL,
+        schluessel TEXT NOT NULL,
+        abgehakt_am DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (kategorie, schluessel)
+    );
+");

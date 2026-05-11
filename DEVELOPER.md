@@ -53,7 +53,8 @@ chmod 777 data/        # Apache muss SQLite-DB anlegen können
 │   ├── upload.php              # POST (multipart oder raw JSON) → dry_run / INSERT
 │   ├── einkaufsliste.php       # POST → aggregierte Zutatenliste
 │   ├── cart.php                # GET / PUT — geteilter aktueller Cart (Singleton)
-│   └── saved_lists.php         # GET / POST / DELETE — benannte gespeicherte Listen
+│   ├── saved_lists.php         # GET / POST / DELETE — benannte gespeicherte Listen
+│   └── checks.php              # GET / POST / DELETE — geteilte abgehakt-Markierungen
 ├── assets/
 │   ├── config.js               # APP_BASE — aus import.meta.url abgeleitet
 │   ├── app.js                  # Router + Cart-State (server-backed, lokal gemirrort)
@@ -102,6 +103,15 @@ CREATE TABLE IF NOT EXISTS einkaufsliste_gespeichert (
     name TEXT NOT NULL UNIQUE,
     items TEXT NOT NULL,
     gespeichert_am DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Abgehakte Einträge (geteilt). Schlüssel ist 'name_lower||unit_lower'.
+-- Bewusst ohne quantity im Key → Personenzahl-Änderung erhält den Check.
+CREATE TABLE IF NOT EXISTS einkaufsliste_abgehakt (
+    kategorie TEXT NOT NULL,    -- 'zutaten' / 'gewuerze' / 'equipment'
+    schluessel TEXT NOT NULL,   -- z.B. 'mehl||g' oder 'salz||'
+    abgehakt_am DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (kategorie, schluessel)
 );
 ```
 
@@ -404,6 +414,37 @@ Löscht. `404` wenn nicht vorhanden.
 { "success": true, "name": "..." }
 ```
 
+### `GET /api/checks.php`
+
+Liefert alle abgehakten Einträge, gruppiert nach Kategorie:
+
+```json
+{
+  "zutaten":   ["mehl||g", "spaghetti||g"],
+  "gewuerze":  ["salz||"],
+  "equipment": []
+}
+```
+
+Schlüssel-Format: `name_lower||unit_lower`. Für Gewürze und Equipment
+(beide ohne Unit) ist der Teil nach `||` leer.
+
+### `POST /api/checks.php`
+
+Setzt oder entfernt ein einzelnes Häkchen. Body:
+
+```json
+{ "kategorie": "zutaten", "schluessel": "mehl||g", "checked": true }
+```
+
+`kategorie` muss `zutaten`/`gewuerze`/`equipment` sein, `schluessel`
+muss non-empty sein. `checked: true` → INSERT, `false` → DELETE.
+
+### `DELETE /api/checks.php[?kategorie=...]`
+
+Ohne Parameter: löscht **alle** Häkchen. Mit `?kategorie=zutaten`:
+nur die einer Kategorie.
+
 ### Method-Override
 
 Falls Apache PUT/DELETE blockiert (z. B. restriktive Konfigs), akzeptiert
@@ -590,6 +631,18 @@ gerendert — jeder Klick ersetzt den Inhalt. Geladene Volldaten werden
 zwischen den Buttons gecached (bis Personenzahl geändert oder Rezept
 entfernt wird).
 
+**Abgehakt-Persistenz** (server-side, geteilt zwischen Nutzern): Jede
+Liste (Zutaten/Gewürze/Equipment) hat in der DB einen Eintrag pro
+abgehakter Position. Schlüssel ist `name_lower||unit_lower` — kein
+quantity, kein group, damit der Check über Personenzahl-Änderungen
+hinweg erhalten bleibt. Beim Render werden Daten und Checks parallel
+geholt (`Promise.all`). Toggle einer Checkbox → optimistic local
+update + `POST /api/checks.php` im Hintergrund (Fehler werden nur
+geloggt, nicht reverted). Jede Sektion hat einen
+"↺ Häkchen zurücksetzen"-Button (DELETE pro Kategorie). Beim "Alle
+entfernen" und beim Laden einer gespeicherten Liste werden **alle**
+Häkchen gelöscht (neuer Einkaufszyklus).
+
 **Print-Verhalten**: Cart-Tabelle und Toolbar sind mit `.no-print`
 markiert. Wenn der Benutzer auf der Einkaufsliste-Seite "🖨 Drucken"
 klickt während der Rezept-Ansicht, blendet die Print-CSS Header,
@@ -685,6 +738,14 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 - `mb_strtolower`-Fallback auf `strtolower` in `einkaufsliste.php`
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
+
+### 2026-05-06 — Abgehakt-Status server-seitig persistent
+
+- Neue Tabelle `einkaufsliste_abgehakt` (composite PK `kategorie`+`schluessel`) hält geteilte Häkchen für Zutaten/Gewürze/Equipment
+- Schlüssel-Format `name_lower||unit_lower` — bewusst ohne quantity, damit Personenzahl-Änderungen den Check **nicht** verwerfen
+- Neuer Endpoint `api/checks.php`: GET (alle, gruppiert), POST (toggle einzelnes), DELETE (clear alle bzw. per kategorie)
+- Frontend: jede Sektion (Zutaten/Gewürze/Equipment) lädt Daten und Checks parallel via `Promise.all`. Checkboxes haben `data-kategorie`+`data-schluessel`-Attribute; ein delegierter Toggle-Handler synct optimistic an den Server. „↺ Häkchen zurücksetzen"-Button pro Sektion.
+- Beim „Alle entfernen" (Cart leeren) und „Liste laden" (replaceAll) werden auch alle Häkchen geleert — neuer Einkaufszyklus, fresh start
 
 ### 2026-05-06 — Einkaufsliste server-backed + benannte gespeicherte Listen
 

@@ -96,6 +96,34 @@ function equipmentToText(items) {
     return items.map(e => `- ${formatQuantity(e.quantity)} × ${e.name}`).join('\n') + '\n';
 }
 
+// Schlüssel zum Matchen abgehakter Einträge gegen die DB. Wert wird auch
+// in `data-schluessel` der Checkboxen geschrieben, damit der Toggle-
+// Handler weiß was er an den Server schickt.
+function checkKey(name, unit = '') {
+    return `${String(name ?? '').trim().toLowerCase()}||${String(unit ?? '').trim().toLowerCase()}`;
+}
+
+/**
+ * Hängt ein Set von checked-keys (z.B. ['mehl||g']) an einen Container
+ * mit `<input type="checkbox" data-kategorie="..." data-schluessel="...">`
+ * Elementen — setzt initial checked und verdrahtet den Toggle-Handler.
+ */
+function wireCheckboxes(container, checkedSet) {
+    container.querySelectorAll('input[type=checkbox][data-schluessel]').forEach(cb => {
+        const kategorie = cb.dataset.kategorie;
+        const schluessel = cb.dataset.schluessel;
+        if (checkedSet.has(schluessel)) cb.checked = true;
+
+        cb.addEventListener('change', async () => {
+            try {
+                await api.setCheck(kategorie, schluessel, cb.checked);
+            } catch (err) {
+                console.error('Check-Sync zum Server fehlgeschlagen:', err);
+            }
+        });
+    });
+}
+
 export async function renderEinkaufsliste(root) {
     let cachedRecipes = null;
     let savedLists = [];
@@ -225,11 +253,11 @@ export async function renderEinkaufsliste(root) {
             });
         });
 
-        root.querySelector('#clear').addEventListener('click', () => {
-            if (confirm('Alle Rezepte aus der Einkaufsliste entfernen?')) {
-                cart.clear();
-                draw();
-            }
+        root.querySelector('#clear').addEventListener('click', async () => {
+            if (!confirm('Alle Rezepte aus der Einkaufsliste entfernen?')) return;
+            cart.clear();
+            try { await api.clearChecks(); } catch (err) { console.error('clearChecks failed:', err); }
+            draw();
         });
 
         const saveBtn = root.querySelector('#save-as');
@@ -271,6 +299,8 @@ export async function renderEinkaufsliste(root) {
         try {
             const data = await api.getSavedList(name);
             cart.replaceAll(data.items || []);
+            // Neue Liste = neuer Einkaufszyklus → Häkchen zurücksetzen
+            try { await api.clearChecks(); } catch (err) { console.error('clearChecks failed:', err); }
             draw();
         } catch (err) {
             alert('Laden fehlgeschlagen: ' + err.message);
@@ -325,8 +355,12 @@ export async function renderEinkaufsliste(root) {
         const ergebnis = root.querySelector('#ergebnis');
         ergebnis.innerHTML = `<p class="muted">Generiere…</p>`;
         try {
-            const data = await api.einkaufsliste(items.map(r => ({ id: r.id, personen: r.personen })));
+            const [data, checks] = await Promise.all([
+                api.einkaufsliste(items.map(r => ({ id: r.id, personen: r.personen }))),
+                api.getChecks(),
+            ]);
             const liste = data.liste || [];
+            const checkedSet = new Set(checks.zutaten || []);
 
             if (!liste.length) {
                 ergebnis.innerHTML = `<p class="muted">Keine Zutaten gefunden.</p>`;
@@ -342,10 +376,11 @@ export async function renderEinkaufsliste(root) {
                         <ul>
                             ${grp.items.map(it => {
                                 const u = displayUnit(it.unit);
+                                const key = checkKey(it.name, it.unit);
                                 return `
                                 <li>
                                     <label>
-                                        <input type="checkbox">
+                                        <input type="checkbox" data-kategorie="zutaten" data-schluessel="${escapeHtml(key)}">
                                         <strong>${escapeHtml(formatQuantity(it.quantity))}${u ? ' ' + escapeHtml(u) : ''}</strong>
                                         ${escapeHtml(it.name)}
                                     </label>
@@ -356,12 +391,15 @@ export async function renderEinkaufsliste(root) {
                     <div class="row-buttons">
                         <button type="button" class="btn" data-action="copy">📋 Als Text kopieren</button>
                         <button type="button" class="btn" data-action="download">💾 Als .txt herunterladen</button>
+                        <button type="button" class="btn" data-action="reset-checks">↺ Häkchen zurücksetzen</button>
                     </div>
                 </div>
             `;
 
+            wireCheckboxes(ergebnis, checkedSet);
             ergebnis.querySelector('[data-action=copy]').addEventListener('click', () => copyText(text));
             ergebnis.querySelector('[data-action=download]').addEventListener('click', () => downloadText('einkaufsliste.txt', text));
+            ergebnis.querySelector('[data-action=reset-checks]').addEventListener('click', () => resetChecksFor('zutaten', generateZutaten));
         } catch (err) {
             ergebnis.innerHTML = `<p class="error">Fehler: ${escapeHtml(err.message)}</p>`;
         }
@@ -371,8 +409,9 @@ export async function renderEinkaufsliste(root) {
         const ergebnis = root.querySelector('#ergebnis');
         ergebnis.innerHTML = `<p class="muted">Lade Rezepte…</p>`;
         try {
-            const recipes = await loadRecipes();
+            const [recipes, checks] = await Promise.all([loadRecipes(), api.getChecks()]);
             const spices = aggregateSpices(recipes);
+            const checkedSet = new Set(checks.gewuerze || []);
 
             if (!spices.length) {
                 ergebnis.innerHTML = `<p class="muted">Keine Gewürze in den ausgewählten Rezepten.</p>`;
@@ -384,19 +423,23 @@ export async function renderEinkaufsliste(root) {
                 <div class="ergebnis">
                     <h2>Gewürze (${spices.length} verschiedene)</h2>
                     <ul>
-                        ${spices.map(s => `
-                            <li><label><input type="checkbox"> ${escapeHtml(s)}</label></li>
-                        `).join('')}
+                        ${spices.map(s => {
+                            const key = checkKey(s);
+                            return `<li><label><input type="checkbox" data-kategorie="gewuerze" data-schluessel="${escapeHtml(key)}"> ${escapeHtml(s)}</label></li>`;
+                        }).join('')}
                     </ul>
                     <div class="row-buttons">
                         <button type="button" class="btn" data-action="copy">📋 Kopieren</button>
                         <button type="button" class="btn" data-action="download">💾 Als .txt herunterladen</button>
+                        <button type="button" class="btn" data-action="reset-checks">↺ Häkchen zurücksetzen</button>
                     </div>
                 </div>
             `;
 
+            wireCheckboxes(ergebnis, checkedSet);
             ergebnis.querySelector('[data-action=copy]').addEventListener('click', () => copyText(text));
             ergebnis.querySelector('[data-action=download]').addEventListener('click', () => downloadText('gewuerze.txt', text));
+            ergebnis.querySelector('[data-action=reset-checks]').addEventListener('click', () => resetChecksFor('gewuerze', generateGewuerze));
         } catch (err) {
             ergebnis.innerHTML = `<p class="error">Fehler: ${escapeHtml(err.message)}</p>`;
         }
@@ -406,8 +449,9 @@ export async function renderEinkaufsliste(root) {
         const ergebnis = root.querySelector('#ergebnis');
         ergebnis.innerHTML = `<p class="muted">Lade Rezepte…</p>`;
         try {
-            const recipes = await loadRecipes();
+            const [recipes, checks] = await Promise.all([loadRecipes(), api.getChecks()]);
             const equipment = aggregateEquipment(recipes);
+            const checkedSet = new Set(checks.equipment || []);
 
             if (!equipment.length) {
                 ergebnis.innerHTML = `<p class="muted">Keine Küchenausstattung in den ausgewählten Rezepten angegeben.</p>`;
@@ -420,25 +464,39 @@ export async function renderEinkaufsliste(root) {
                     <h2>Küchenausstattung (${equipment.length} Posten)</h2>
                     <p class="muted">Pro Posten der größte Bedarf aus den ausgewählten Rezepten — wird nicht aufsummiert, da Geräte typischerweise wiederverwendet werden.</p>
                     <ul>
-                        ${equipment.map(e => `
-                            <li><label>
-                                <input type="checkbox">
+                        ${equipment.map(e => {
+                            const key = checkKey(e.name);
+                            return `<li><label>
+                                <input type="checkbox" data-kategorie="equipment" data-schluessel="${escapeHtml(key)}">
                                 <strong>${escapeHtml(formatQuantity(e.quantity))} ×</strong>
                                 ${escapeHtml(e.name)}
-                            </label></li>
-                        `).join('')}
+                            </label></li>`;
+                        }).join('')}
                     </ul>
                     <div class="row-buttons">
                         <button type="button" class="btn" data-action="copy">📋 Kopieren</button>
                         <button type="button" class="btn" data-action="download">💾 Als .txt herunterladen</button>
+                        <button type="button" class="btn" data-action="reset-checks">↺ Häkchen zurücksetzen</button>
                     </div>
                 </div>
             `;
 
+            wireCheckboxes(ergebnis, checkedSet);
             ergebnis.querySelector('[data-action=copy]').addEventListener('click', () => copyText(text));
             ergebnis.querySelector('[data-action=download]').addEventListener('click', () => downloadText('kuechenausstattung.txt', text));
+            ergebnis.querySelector('[data-action=reset-checks]').addEventListener('click', () => resetChecksFor('equipment', generateEquipment));
         } catch (err) {
             ergebnis.innerHTML = `<p class="error">Fehler: ${escapeHtml(err.message)}</p>`;
+        }
+    }
+
+    /** Server-seitig alle Häkchen einer Kategorie löschen und View neu rendern */
+    async function resetChecksFor(kategorie, regenerate) {
+        try {
+            await api.clearChecks(kategorie);
+            await regenerate();
+        } catch (err) {
+            alert('Häkchen zurücksetzen fehlgeschlagen: ' + err.message);
         }
     }
 

@@ -106,4 +106,26 @@ export const api = {
         const res = await fetch(`${BASE}/saved_lists.php?${params}`, { method: 'DELETE' });
         return handle(res);
     },
+
+    async getChecks() {
+        const res = await fetch(`${BASE}/checks.php`);
+        return handle(res);
+    },
+
+    async setCheck(kategorie, schluessel, checked) {
+        const res = await fetch(`${BASE}/checks.php`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kategorie, schluessel, checked }),
+        });
+        return handle(res);
+    },
+
+    async clearChecks(kategorie = '') {
+        const url = kategorie
+            ? `${BASE}/checks.php?${new URLSearchParams({ kategorie })}`
+            : `${BASE}/checks.php`;
+        const res = await fetch(url, { method: 'DELETE' });
+        return handle(res);
+    },
 };

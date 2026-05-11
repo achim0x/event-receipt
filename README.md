@@ -14,6 +14,7 @@ JavaScript framework, no Composer.
 - Edit recipes directly via JSON editor
 - **Shared shopping list**: cart is server-backed and shared across all users (no auth — single household / small group use case)
 - **Named saved lists**: save the current cart under a name, load it back later, manage multiple saved lists
+- **Persistent check-off state**: ticked items on the shopping list stay ticked across reloads and are shared across devices (great for "I already got the flour" coordination); survives serving-size changes
 
 **Tech Stack**
 - PHP 8.x (PDO/SQLite, JSON)
