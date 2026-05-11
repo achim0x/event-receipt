@@ -922,6 +922,11 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
 
+### 2026-05-11 — KI-Prompt erweitert: 1-Personen-Normierung + Departments
+
+- Beispiel-Prompt auf der Upload-Seite (in der `prompt-box`) ist jetzt deutlich präziser: weist die KI explizit an, alle Zutaten-Mengen auf 1 Person zu normieren (passt zur App-Konvention) und ein optionales `department` aus der erlaubten Liste zu setzen. Erwähnt auch welche Einheiten erlaubt sind (inkl. auto-normalisierbarer Aliase wie kg/L/EL/TL).
+- Frühere Version war ein One-Liner ohne diese Hinweise — Resultate wurden oft für 4 Personen geliefert und mussten manuell geteilt werden.
+
 ### 2026-05-11 — JSON-Export für einzelne Rezepte + Export/Import der Sammlung
 
 - **Single-Recipe-Export**: Detail-View bekommt „💾 Als JSON"-Button. Lädt das `daten`-JSON client-seitig als `<titel>.json` herunter (kein Server-Endpunkt nötig). Datei ist re-importierbar via Upload oder Batch-Import.
