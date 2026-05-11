@@ -1,6 +1,39 @@
 <?php
 declare(strict_types=1);
 
+/**
+ * Generische Input-Sanitisierung für Free-Text-Felder.
+ * - Entfernt NULL-Bytes (können in einigen Kontexten injection-relevant werden)
+ * - Entfernt Steuerzeichen außer Tab/LF/CR
+ * - Trimmt auf $maxLen UTF-8-Codepoints
+ * - Wenn $input gar kein String ist, leerer String zurück
+ */
+function sanitize_text(mixed $input, int $maxLen): string {
+    if (!is_string($input)) return '';
+    // NULL-Bytes und C0-Controls entfernen (außer Tab, LF, CR)
+    $clean = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/u', '', $input) ?? $input;
+    $clean = trim($clean);
+    if (function_exists('mb_substr')) {
+        return mb_substr($clean, 0, $maxLen, 'UTF-8');
+    }
+    return substr($clean, 0, $maxLen);
+}
+
+// Längen-Limits (UTF-8-Codepoints, nicht Bytes) für die wichtigsten Strings.
+// Konservativ gewählt — normale Rezepte nutzen nirgends mehr als die Hälfte.
+const MAX_TITLE_LEN       = 200;
+const MAX_CATEGORY_LEN    = 100;
+const MAX_SOURCE_LEN      = 200;
+const MAX_TIME_LEN        = 100;
+const MAX_GROUP_LEN       = 100;
+const MAX_INGREDIENT_NAME = 200;
+const MAX_UNIT_LEN        = 30;
+const MAX_DEPT_LEN        = 50;
+const MAX_SPICE_LEN       = 200;
+const MAX_PREP_STEP_LEN   = 5000;
+const MAX_TIP_LEN         = 2000;
+const MAX_EQUIPMENT_NAME  = 200;
+
 function load_translation_map(): array {
     $candidates = [
         __DIR__ . '/../translation_map.json',
@@ -218,6 +251,61 @@ function normalize_recipe_strict(mixed $data): array {
     }
     if (empty($normalized['ingredients']) || !is_array($normalized['ingredients'])) {
         throw new RecipeValidationException('Pflichtfeld "ingredients" (oder "zutaten") fehlt');
+    }
+
+    // Längenlimits + Sanitisierung der Top-Level-Strings
+    $normalized['title'] = sanitize_text($normalized['title'], MAX_TITLE_LEN);
+    if ($normalized['title'] === '') {
+        throw new RecipeValidationException('Feld "title" ist nach Sanitisierung leer');
+    }
+    foreach (['category' => MAX_CATEGORY_LEN, 'source' => MAX_SOURCE_LEN, 'preparation_time' => MAX_TIME_LEN] as $k => $lim) {
+        if (isset($normalized[$k])) {
+            $normalized[$k] = sanitize_text($normalized[$k], $lim);
+            if ($normalized[$k] === '') unset($normalized[$k]);
+        }
+    }
+
+    // Ingredient-Gruppen und Items
+    foreach ($normalized['ingredients'] as $gi => &$group) {
+        if (!is_array($group)) { unset($normalized['ingredients'][$gi]); continue; }
+        if (isset($group['group'])) {
+            $group['group'] = sanitize_text($group['group'], MAX_GROUP_LEN);
+        }
+        if (isset($group['items']) && is_array($group['items'])) {
+            foreach ($group['items'] as $ii => &$item) {
+                if (!is_array($item)) { unset($group['items'][$ii]); continue; }
+                if (isset($item['name'])) $item['name'] = sanitize_text($item['name'], MAX_INGREDIENT_NAME);
+                if (isset($item['unit'])) $item['unit'] = sanitize_text($item['unit'], MAX_UNIT_LEN);
+                if (isset($item['department'])) $item['department'] = sanitize_text($item['department'], MAX_DEPT_LEN);
+                // quantity wird unten in normalize_units_in_recipe als float behandelt
+            }
+            unset($item);
+            $group['items'] = array_values($group['items']);
+        }
+    }
+    unset($group);
+    $normalized['ingredients'] = array_values($normalized['ingredients']);
+
+    // Listen-Strings: spices, preparation, tips
+    foreach (['spices' => MAX_SPICE_LEN, 'preparation' => MAX_PREP_STEP_LEN, 'tips' => MAX_TIP_LEN] as $k => $lim) {
+        if (isset($normalized[$k]) && is_array($normalized[$k])) {
+            $cleaned = [];
+            foreach ($normalized[$k] as $entry) {
+                $s = sanitize_text($entry, $lim);
+                if ($s !== '') $cleaned[] = $s;
+            }
+            $normalized[$k] = $cleaned;
+        }
+    }
+
+    // Küchenausstattung
+    if (isset($normalized['kitchen_equipment']) && is_array($normalized['kitchen_equipment'])) {
+        foreach ($normalized['kitchen_equipment'] as $ei => &$e) {
+            if (!is_array($e)) { unset($normalized['kitchen_equipment'][$ei]); continue; }
+            if (isset($e['name'])) $e['name'] = sanitize_text($e['name'], MAX_EQUIPMENT_NAME);
+        }
+        unset($e);
+        $normalized['kitchen_equipment'] = array_values($normalized['kitchen_equipment']);
     }
 
     $unitErrors = [];

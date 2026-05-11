@@ -12,16 +12,25 @@ if ($method === 'POST') {
     if (in_array($override, ['DELETE', 'PUT'], true)) $method = $override;
 }
 
+const MAX_SAVED_ITEMS = 200;
+const MAX_SAVED_TITEL_LEN = 200;
+
 function sanitize_cart_items_for_save(mixed $items): array {
     if (!is_array($items)) return [];
     $out = [];
     foreach ($items as $it) {
         if (!is_array($it) || !isset($it['id'])) continue;
+        $titel = isset($it['titel']) ? (string) $it['titel'] : '';
+        $titel = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/u', '', $titel) ?? $titel;
+        $titel = function_exists('mb_substr')
+            ? mb_substr(trim($titel), 0, MAX_SAVED_TITEL_LEN, 'UTF-8')
+            : substr(trim($titel), 0, MAX_SAVED_TITEL_LEN);
         $out[] = [
             'id' => (int) $it['id'],
-            'titel' => isset($it['titel']) ? (string) $it['titel'] : '',
-            'personen' => max(1, (int) ($it['personen'] ?? 1)),
+            'titel' => $titel,
+            'personen' => max(1, min(9999, (int) ($it['personen'] ?? 1))),
         ];
+        if (count($out) >= MAX_SAVED_ITEMS) break;
     }
     return $out;
 }

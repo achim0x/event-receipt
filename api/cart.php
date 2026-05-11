@@ -11,16 +11,26 @@ if ($method === 'POST') {
     if ($override === 'PUT') $method = 'PUT';
 }
 
+const MAX_CART_ITEMS = 200;       // Defensiv gegen Cart-Bombing
+const MAX_CART_TITEL_LEN = 200;
+
 function sanitize_cart_items(mixed $items): array {
     if (!is_array($items)) return [];
     $out = [];
     foreach ($items as $it) {
         if (!is_array($it) || !isset($it['id'])) continue;
+        $titel = isset($it['titel']) ? (string) $it['titel'] : '';
+        // Control-Chars raus, auf max Länge kürzen
+        $titel = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F]/u', '', $titel) ?? $titel;
+        $titel = function_exists('mb_substr')
+            ? mb_substr(trim($titel), 0, MAX_CART_TITEL_LEN, 'UTF-8')
+            : substr(trim($titel), 0, MAX_CART_TITEL_LEN);
         $out[] = [
             'id' => (int) $it['id'],
-            'titel' => isset($it['titel']) ? (string) $it['titel'] : '',
-            'personen' => max(1, (int) ($it['personen'] ?? 1)),
+            'titel' => $titel,
+            'personen' => max(1, min(9999, (int) ($it['personen'] ?? 1))),
         ];
+        if (count($out) >= MAX_CART_ITEMS) break;
     }
     return $out;
 }

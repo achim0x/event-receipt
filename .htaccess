@@ -1,12 +1,22 @@
 RewriteEngine On
 
+# --- Block direkten Zugriff auf sensitive Pfade/Dateien ----------------------
+# Verhindert dass die SQLite-DB, JSON-Konfigs oder versteckte Files
+# direkt über HTTP abgerufen werden können. data/ braucht für Apache
+# Filesystem-Schreibrechte → soll aber nicht web-sichtbar sein.
+RewriteRule ^data(/|$)        - [F,L]
+RewriteRule \.(db|sqlite|sqlite3|db-journal|db-wal|db-shm)$ - [F,L]
+RewriteRule ^\.(ht|git)       - [F,L]
+
+# --- API-Routing ------------------------------------------------------------
 # /api/* direkt durch PHP serviert.
 # Relatives Pattern (kein führender Slash) — funktioniert sowohl im Root
 # als auch in jedem Unterverzeichnis, weil mod_rewrite per-directory
 # das Pattern relativ zum .htaccess-Verzeichnis matcht.
 RewriteRule ^api/ - [L]
 
-# Statische Dateien direkt liefern
+# --- SPA-Fallback -----------------------------------------------------------
+# Statische Dateien (assets, etc.) direkt liefern
 RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d
 RewriteRule ^ - [L]
@@ -15,6 +25,39 @@ RewriteRule ^ - [L]
 # anhand der eigenen Position im Filesystem.
 RewriteRule ^ index.php [L]
 
-# JSON Uploads bis 1MB
+# --- Security-Headers (defense in depth) ------------------------------------
+# Setzt nur wenn mod_headers verfügbar — Apache ignoriert <IfModule> sauber
+# wenn das Modul fehlt, statt einen 500er zu werfen.
+<IfModule mod_headers.c>
+    # Verhindert MIME-Sniffing — Browser respektiert Content-Type strikt
+    Header always set X-Content-Type-Options "nosniff"
+
+    # Verhindert dass die Seite in iframes geladen wird (Clickjacking)
+    Header always set X-Frame-Options "DENY"
+
+    # Privacy: keine Referrer-Info an Drittseiten leaken
+    Header always set Referrer-Policy "same-origin"
+
+    # CSP: erlaubt nur Ressourcen vom eigenen Origin. Die App nutzt
+    # keine externen Scripts/Styles, keine inline-Scripts (alle Module
+    # haben src=), kein inline-CSS. style-src 'unsafe-inline' bleibt
+    # weil einzelne style="hidden"-Attribute etc. genutzt werden;
+    # ohne 'unsafe-inline' würden die brechen.
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+
+    # HSTS würde hier auch hingehören — aber nur sinnvoll bei HTTPS.
+    # Wenn die App über HTTPS läuft, manuell aktivieren:
+    # Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+    # Server-Signature/Apache-Version: Apache-Default-Setting (in
+    # apache2.conf via ServerTokens / ServerSignature) — kann hier
+    # nicht überschrieben werden.
+</IfModule>
+
+# --- Directory-Listing prinzipiell aus --------------------------------------
+Options -Indexes
+
+# --- Upload-Limits ----------------------------------------------------------
+# Nur mit mod_php aktiv. Bei PHP-FPM in php.ini setzen.
 php_value upload_max_filesize 2M
 php_value post_max_size 2M

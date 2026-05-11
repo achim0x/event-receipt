@@ -890,6 +890,78 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 
 ---
 
+## 10.X Security-Modell
+
+### Bedrohungsmodell und bewusste Designentscheidungen
+
+Die App ist konzipiert für ein **vertrauliches LAN-/Single-Household-
+Setup** ohne User-Verwaltung. Daraus ergeben sich die Designentscheidungen:
+
+- **Keine Authentifizierung**: jeder mit Netzwerk-Zugriff auf den Host
+  hat vollen Lese- und Schreibzugriff. Wer dieselbe URL erreicht, kann
+  alle Rezepte und Listen sehen und bearbeiten.
+- **Geteilter Zustand**: Cart, Saved-Lists, Checks sind ein Singleton —
+  keine Trennung „mein vs. fremd". Daher kein IDOR-Vektor im klassischen
+  Sinn (es gibt keine Owner-Beziehung zwischen Ressourcen und Nutzern).
+- **Plain HTTP per Default**: HTTPS ist Deployment-Sache (Reverse-Proxy
+  vor Apache). Wer die App im Internet hostet, MUSS HTTPS und zusätzlich
+  Authentifizierung vorlagern.
+
+### Implementierte Härtung (defense in depth)
+
+| Bereich | Maßnahme | Stelle |
+|---|---|---|
+| **Direkter File-Zugriff** | `.htaccess` blockt `data/`, `*.db`, `*.sqlite`, `*-journal`, `.ht*`, `.git*` mit `[F,L]` (403). | `.htaccess` |
+| **CSRF** | Cross-Origin-POST/PUT/DELETE wird abgelehnt (403) — Origin/Referer-Header müssen zum eigenen Host passen. Browser senden diese immer; curl/Tools ohne Origin werden durchgelassen weil sie kein CSRF-Vektor sind. | `ensure_same_origin()` in `bootstrap.php` |
+| **CORS** | Keine `Access-Control-Allow-*` Header → keine Cross-Origin-Zugriffe möglich. Same-Origin braucht kein CORS. | `bootstrap.php` |
+| **XSS** | Alle User-/DB-Daten durchlaufen `escapeHtml()` vor `innerHTML`-Insertion. CSP `script-src 'self'` blockt Inline-Scripts und externe Skripte. `X-Content-Type-Options: nosniff` verhindert MIME-Sniffing. | Frontend-Views + `.htaccess` CSP |
+| **Clickjacking** | `X-Frame-Options: DENY` + CSP `frame-ancestors 'none'` — die App kann nicht in iframes geladen werden. | `.htaccess` + `bootstrap.php` |
+| **SQL Injection** | Alle User-Input-Queries nutzen PDO-Prepared-Statements mit Named/Positional Parameters. `$db->exec()` wird nur für hardcoded DDL/DML ohne User-Input genutzt. | alle `api/*.php` |
+| **Path Traversal** | Filesystem-Pfade sind hardcoded via `__DIR__`. User-Uploads landen in PHP-kontrolliertem `tmp_name`. | `bootstrap.php`, `upload.php` |
+| **Input-Validation** | Alle Free-Text-Felder durchlaufen `sanitize_text()`: NULL-Bytes + C0-Controls gestripped, Längen-Limits (siehe Konstanten in `translation.php`). Einheiten und Departments werden gegen Whitelist validiert. | `translation.php`, `cart.php`, `saved_lists.php` |
+| **DoS** | Größen-Limits: Upload 1 MB, Import 5 MB, Cart 1 MB, Saved-Listen 1 MB, max 200 Cart-Items. | jeweils pro Endpoint |
+| **Error-Leaking** | `set_exception_handler` gibt generische „Internal server error"-Meldung. Details (Klasse, Datei, Zeile, Message) gehen nur ins `error_log`. | `bootstrap.php` |
+| **Information Disclosure** | Server-Signature-Reduktion ist Apache-Hauptconfig-Sache (`ServerTokens Prod`, `ServerSignature Off` in `apache2.conf`) — kann nicht in `.htaccess` gesetzt werden. | Deployment |
+| **Referrer-Leak** | `Referrer-Policy: same-origin` — keine Referer-Info an Drittseiten beim Folgen externer Links (haben wir aktuell zwar nicht, defense-in-depth). | `.htaccess` + `bootstrap.php` |
+
+### Was bewusst NICHT implementiert ist
+
+- **Authentifizierung / Sessions**: würde das geteilte Verwendungsmodell
+  brechen (mehrere Family-Members editieren denselben Cart). Wer Auth
+  braucht, packt nginx-basic-auth oder ein Reverse-Proxy mit OAuth davor.
+- **Rate-Limiting**: kein App-internes Throttling. Apache-Module wie
+  `mod_evasive` oder `fail2ban` können das von außen liefern.
+- **Audit-Log**: wer wann was geändert hat, wird nicht erfasst. Apache-
+  Access-Log enthält die HTTP-Requests aber keine Bodies.
+- **Encrypted-at-Rest**: SQLite-Datei ist Plain. Auf gemeinsam genutzten
+  Hosts: Filesystem-Permissions sicherstellen (`chmod 640`,
+  `chown www-data:www-data`).
+
+### Production-Checkliste
+
+Wer die App im Internet (statt LAN) betreibt:
+
+1. **HTTPS aktivieren** — Reverse-Proxy (Caddy, nginx, Apache vhost) mit
+   Let's Encrypt davor. In `.htaccess` dann `Strict-Transport-Security`
+   uncomenten.
+2. **Authentifizierung vorlagern** — z. B. nginx `auth_basic`, oauth2-
+   proxy, Authelia. Die App selbst kennt keine User.
+3. **`mod_headers` aktivieren** (`a2enmod headers`), damit die CSP- und
+   Sicherheits-Header aus der `.htaccess` greifen — die PHP-Antworten
+   sind durch `bootstrap.php` ohnehin gehärtet, aber statische Files
+   profitieren erst dann.
+4. **`ServerTokens Prod` und `ServerSignature Off`** in
+   `/etc/apache2/conf-enabled/security.conf` — versteckt die Apache-
+   Version.
+5. **`AllowOverride All`** für den App-Pfad ist Pflicht — sonst greift
+   die `.htaccess` nicht (siehe Sektion 7).
+6. **Filesystem-Permissions**: `data/` 770 (`www-data` als Owner),
+   `translation_map.json` 644, kein Read-Zugriff für `other`.
+7. **Kein `phpinfo.php`** im Web-Root — leakt Server-Internals.
+8. **Periodisches Backup** der `data/rezepte.db` (oder via Export-API).
+
+---
+
 ## 11. Erweiterungsideen (offen)
 
 - **Form-basierter Editor** statt Textarea (Felder pro Zutat, Drag-Sort
@@ -921,6 +993,43 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 - `mb_strtolower`-Fallback auf `strtolower` in `einkaufsliste.php`
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
+
+### 2026-05-11 — Security-Härtung
+
+Mehrere Schichten Hardening gegen die einschlägigen OWASP-Top-10-Vektoren:
+
+- **Direkter File-Zugriff blockiert** (vorher kritisch!): `.htaccess`
+  liefert 403 für `data/`, alle `*.db`/`*.sqlite`/`*-journal`/`-wal`/
+  `-shm`-Files, `.ht*` und `.git*`. Vorher war `data/rezepte.db`
+  über HTTP komplett downloadbar.
+- **Security-Headers**: `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`. Plus eine
+  strikte `Content-Security-Policy` mit `script-src 'self'`,
+  `frame-ancestors 'none'`, `object-src 'none'`. Headers werden vom
+  PHP-Backend für API-Antworten gesetzt; statische Files brauchen
+  `mod_headers` in Apache.
+- **CSRF-Schutz**: `ensure_same_origin()` in `bootstrap.php` blockt
+  POST/PUT/DELETE wenn Origin/Referer nicht zum eigenen Host passt.
+  Tools ohne Origin/Referer (curl) bleiben erlaubt — die sind kein
+  CSRF-Vektor.
+- **CORS-Wildcard entfernt**: vorher `Access-Control-Allow-Origin: *`,
+  jetzt gar nicht mehr gesetzt. Same-Origin braucht kein CORS.
+- **Generic Error-Response**: `set_exception_handler` gibt jetzt nur
+  `{"error":"Internal server error"}` an den Client zurück. Details
+  (Class, File, Line, Message) gehen ausschließlich ins `error_log`.
+- **Input-Sanitisierung**: neue `sanitize_text()` in `translation.php`
+  entfernt NULL-Bytes und C0-Controls, trimmt auf max-Längen-Konstanten
+  (`MAX_TITLE_LEN=200`, `MAX_INGREDIENT_NAME=200`, `MAX_PREP_STEP_LEN=5000`
+  etc.). Wird auf alle Free-Text-Felder im Recipe-Upload angewendet.
+- **Cart-Bombing-Schutz**: `MAX_CART_ITEMS=200` und `MAX_CART_TITEL_LEN=200`
+  in `cart.php` und `saved_lists.php`.
+- **XSS-Audit**: bestehende `escapeHtml`-Nutzung in allen Views
+  verifiziert — gemixter HTML-Payload (`<script>`, `<img onerror>`,
+  `<svg onload>`) im Recipe-Titel/Name/Group/Prep wird sauber zu
+  HTML-Entities encoded. Keine roh-injected DOM-Pfade.
+- **Doku**: neue Sektion 10.X „Security-Modell" mit Bedrohungsmodell,
+  Maßnahmen-Tabelle, was bewusst NICHT geschützt ist (z. B. Auth)
+  und Production-Checkliste für Internet-Deployment.
 
 ### 2026-05-11 — KI-Prompt erweitert: 1-Personen-Normierung + Departments
 

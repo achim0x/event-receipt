@@ -99,6 +99,21 @@ sudo chmod 775 <install-dir>/data
 sudo chown www-data:www-data <install-dir>/data
 ```
 
+### 3b. Enable `mod_headers` (security headers)
+
+The bundled `.htaccess` sets a strict Content-Security-Policy plus
+`X-Frame-Options`, `X-Content-Type-Options` and `Referrer-Policy`.
+These need Apache's `mod_headers`:
+
+```bash
+sudo a2enmod headers
+sudo systemctl reload apache2
+```
+
+The PHP backend sets the same headers itself for API responses, so
+the app is already hardened even without `mod_headers` — but static
+assets benefit too once the module is enabled.
+
 ### 4. Allow `.htaccess` overrides
 
 Apache must honour the bundled `.htaccess` for SPA routing to work.
@@ -196,6 +211,36 @@ map (allowed: `g`, `ml`, `Pck`, `Pcs`, plus auto-converted `kg`, `L`,
 or extend the map — see [DEVELOPER.md §5.2](DEVELOPER.md#52-einheiten).
 
 ---
+
+## Security model
+
+This app is designed for a **trusted LAN / single-household** setup
+with no user accounts — anyone who can reach the URL has full read and
+write access. The threat model and the hardening it ships with is
+covered in `DEVELOPER.md` section 10.X.
+
+**If you intend to expose the app on the public Internet**, you MUST
+add the following layers — the app alone is not enough:
+
+1. **HTTPS** via a reverse proxy (Caddy, nginx, Apache vhost) with
+   Let's Encrypt. Then uncomment the HSTS line in `.htaccess`.
+2. **Authentication** — the app has none. Front it with nginx
+   `auth_basic`, `oauth2-proxy`, Authelia, etc.
+3. `ServerTokens Prod` and `ServerSignature Off` in your Apache config
+   to hide the Apache version banner.
+4. Enable `mod_headers` (see step 3b above) so the CSP/security headers
+   are applied to static assets too, not just PHP responses.
+5. Periodic backups of `data/rezepte.db` (or via the export API).
+6. **No `phpinfo.php`** anywhere in the web root.
+
+What's already covered out of the box:
+- CSRF protection (Origin/Referer check on state-changing requests)
+- XSS hardening (output encoding + CSP)
+- Clickjacking protection (X-Frame-Options + frame-ancestors)
+- SQL injection (prepared statements throughout)
+- Direct file access to the SQLite DB and dotfiles is blocked by `.htaccess`
+- Input sanitisation with length limits and NULL-byte stripping
+- Generic 500 error responses (no internal path/class leakage)
 
 ## Updating
 
