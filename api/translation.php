@@ -95,6 +95,74 @@ function normalize_single_unit(float $quantity, string $unit): ?array {
 }
 
 /**
+ * Erlaubte Abteilungen (Departments) in kanonischer Schreibweise.
+ * Reihenfolge ist relevant — wird in einkaufsliste.php fürs Sortieren genutzt.
+ */
+function valid_departments(): array {
+    return [
+        'Obst/Gemüse',
+        'Frische Theke',
+        'Non-Food',
+        'Getränke',
+        'Backen',
+        'Grundnahrungsmittel',
+    ];
+}
+
+/**
+ * Normalisiert eine eingehende Department-Angabe auf die kanonische Schreibweise.
+ * Match ist case-insensitiv. Gibt null zurück wenn unbekannt.
+ * Leere/whitespace-only Eingabe → ['' (leer), true] (gültig, kein Department).
+ */
+function normalize_single_department(string $dept): ?string {
+    $dept = trim($dept);
+    if ($dept === '') return '';
+
+    $canonical = valid_departments();
+    if (in_array($dept, $canonical, true)) return $dept;
+
+    $lower = strtolower($dept);
+    foreach ($canonical as $c) {
+        if (strtolower($c) === $lower) return $c;
+    }
+    return null;
+}
+
+/**
+ * Geht alle ingredients[].items[] durch und normalisiert die Departments in-place.
+ * Sammelt unbekannte Werte in $errors.
+ */
+function normalize_departments_in_recipe(array &$recipe, array &$errors): void {
+    if (!isset($recipe['ingredients']) || !is_array($recipe['ingredients'])) {
+        return;
+    }
+    foreach ($recipe['ingredients'] as $gi => $group) {
+        if (!is_array($group) || !isset($group['items']) || !is_array($group['items'])) {
+            continue;
+        }
+        foreach ($group['items'] as $ii => $item) {
+            if (!is_array($item) || !isset($item['department'])) {
+                continue; // Feld ist optional
+            }
+            $dept = (string) $item['department'];
+            $normalized = normalize_single_department($dept);
+            if ($normalized === null) {
+                $name = trim((string) ($item['name'] ?? ''));
+                $where = $name !== '' ? "Zutat \"$name\"" : 'eine Zutat';
+                $valid = implode('", "', valid_departments());
+                $errors[] = sprintf('Unbekannte Abteilung "%s" bei %s. Erlaubt: "%s"', $dept, $where, $valid);
+                continue;
+            }
+            if ($normalized === '') {
+                unset($recipe['ingredients'][$gi]['items'][$ii]['department']);
+            } else {
+                $recipe['ingredients'][$gi]['items'][$ii]['department'] = $normalized;
+            }
+        }
+    }
+}
+
+/**
  * Geht alle ingredients[].items[] durch und normalisiert die Einheiten in-place.
  * Sammelt alle nicht-konvertierbaren Einheiten in $errors.
  */
@@ -145,6 +213,12 @@ function normalize_recipe(mixed $data): array {
     normalize_units_in_recipe($normalized, $unitErrors);
     if (!empty($unitErrors)) {
         json_error('Einheiten-Fehler: ' . implode('; ', $unitErrors), 400);
+    }
+
+    $deptErrors = [];
+    normalize_departments_in_recipe($normalized, $deptErrors);
+    if (!empty($deptErrors)) {
+        json_error('Abteilungs-Fehler: ' . implode('; ', $deptErrors), 400);
     }
 
     return $normalized;

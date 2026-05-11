@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require __DIR__ . '/bootstrap.php';
+require __DIR__ . '/translation.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     json_error('Method not allowed', 405);
@@ -98,19 +99,28 @@ foreach ($ids as $id) {
             $lowerUnit = function_exists('mb_strtolower') ? mb_strtolower($unit) : strtolower($unit);
             $key = $lowerName . '||' . $lowerUnit;
 
+            $department = trim((string) ($item['department'] ?? ''));
+
             if (!isset($aggregat[$key])) {
                 $aggregat[$key] = [
                     'name' => $name,
                     'unit' => $unit,
                     'quantity' => 0.0,
+                    'department' => $department,  // first-seen, gewinnt bei Konflikten
                 ];
+            } elseif ($aggregat[$key]['department'] === '' && $department !== '') {
+                // Wenn bisher kein Department gesetzt war und ein späteres
+                // Item es hat, das übernehmen — verbessert Klassifizierung
+                $aggregat[$key]['department'] = $department;
             }
             $aggregat[$key]['quantity'] += $skaliert;
         }
     }
 }
 
-$items = [];
+// Sammeln pro Department; Items ohne Department → "Sonstiges"
+const SONSTIGES = 'Sonstiges';
+$byDepartment = [];
 foreach ($aggregat as $entry) {
     $menge = $entry['quantity'];
     if (abs($menge - round($menge)) < 0.001) {
@@ -118,18 +128,37 @@ foreach ($aggregat as $entry) {
     } else {
         $menge = round($menge, 2);
     }
-    $items[] = [
+    $dept = $entry['department'] !== '' ? $entry['department'] : SONSTIGES;
+    $byDepartment[$dept][] = [
         'quantity' => $menge,
         'unit' => $entry['unit'],
         'name' => $entry['name'],
     ];
 }
 
-usort($items, fn($a, $b) => strcasecmp($a['name'], $b['name']));
-
-// Antwort behält das bestehende Listen-Format bei (Array von Gruppen-
-// Objekten), aber mit genau einem Eintrag mit leerer group — das
-// Frontend rendert dann einen flachen <ul> ohne Gruppen-Header.
-$liste = $items ? [['group' => '', 'items' => $items]] : [];
+// Department-Reihenfolge: kanonisch wie in valid_departments() definiert,
+// danach alphabetisch (unbekannte sollten dank normalize_departments_in_recipe
+// nicht vorkommen, aber failsafe), Sonstiges am Ende.
+$canonicalOrder = valid_departments();
+$liste = [];
+foreach ($canonicalOrder as $dept) {
+    if (!empty($byDepartment[$dept])) {
+        usort($byDepartment[$dept], fn($a, $b) => strcasecmp($a['name'], $b['name']));
+        $liste[] = ['group' => $dept, 'items' => $byDepartment[$dept]];
+        unset($byDepartment[$dept]);
+    }
+}
+// Eventuelle Außenseiter (sollte nicht passieren wegen Validierung)
+ksort($byDepartment, SORT_NATURAL | SORT_FLAG_CASE);
+foreach ($byDepartment as $dept => $items) {
+    if ($dept === SONSTIGES) continue;
+    usort($items, fn($a, $b) => strcasecmp($a['name'], $b['name']));
+    $liste[] = ['group' => $dept, 'items' => $items];
+}
+// Sonstiges immer ganz am Ende
+if (!empty($byDepartment[SONSTIGES])) {
+    usort($byDepartment[SONSTIGES], fn($a, $b) => strcasecmp($a['name'], $b['name']));
+    $liste[] = ['group' => SONSTIGES, 'items' => $byDepartment[SONSTIGES]];
+}
 
 json_response(['liste' => $liste]);

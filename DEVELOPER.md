@@ -139,7 +139,7 @@ Kanonische Form (EN-Keys, in der DB so abgelegt):
     {
       "group": "Hauptzutaten",
       "items": [
-        { "quantity": 100, "unit": "g", "name": "Spaghetti" }
+        { "quantity": 100, "unit": "g", "name": "Spaghetti", "department": "Grundnahrungsmittel" }
       ]
     }
   ],
@@ -173,6 +173,7 @@ gewünschten Personenzahl direkt — kein `basis_personen`-Feld.
 | menge             | quantity           |
 | einheit           | unit               |
 | bezeichnung       | name               |
+| abteilung         | department         |
 | gewuerze          | spices             |
 | zubereitung       | preparation        |
 | tipps             | tips               |
@@ -219,6 +220,41 @@ ergänzt, muss auch die PHP-Map anpassen.
 **Anzeige im Frontend**: `assets/units.js` (`displayUnit()`) zeigt
 `Pcs` als „Stück" und `Pck` als „Packung". `g`/`ml` werden unverändert
 angezeigt. Die DB hält immer die kanonische EN-Form.
+
+### 5.3 Abteilungen (Department)
+
+**Optionales Feld** auf jedem Ingredient-Item, dient nur dem Gruppieren
+der Einkaufsliste. Wenn nicht gesetzt → in der Einkaufsliste unter
+„Sonstiges" einsortiert.
+
+**Erlaubte kanonische Werte** (case-insensitiv erkannt, beim Save in
+kanonische Schreibweise normalisiert):
+
+| Wert |
+|---|
+| `Obst/Gemüse` |
+| `Frische Theke` |
+| `Non-Food` |
+| `Getränke` |
+| `Backen` |
+| `Grundnahrungsmittel` |
+
+Unbekannte Werte ⇒ HTTP 400 mit `{"error": "Abteilungs-Fehler: Unbekannte Abteilung \"X\" bei Zutat \"Y\". Erlaubt: \"...\""}`.
+
+**Source of Truth** für die Liste: `valid_departments()` in
+`api/translation.php`. Erweitern: Konstante anpassen — danach
+funktioniert es überall (Validation, Aggregation-Sort-Reihenfolge).
+
+**Anzeige**: Die Einkaufslisten-Aggregation gruppiert nach Department.
+Reihenfolge im Output entspricht der Listen-Reihenfolge oben
+(`valid_departments()`), gefolgt von „Sonstiges" am Ende. Wenn ein
+Department keine Zutaten enthält, wird es weggelassen.
+
+**Konflikte beim Aggregieren**: Wenn dieselbe Zutat (gleicher
+`name+unit`-Key) in zwei Rezepten unterschiedliche Departments hat,
+gewinnt der erste nicht-leere Wert (first-seen). Praktisch sollte
+das selten vorkommen — User pflegt Department-Klassifikation
+konsistent.
 
 ---
 
@@ -328,32 +364,36 @@ gefrorenen Snapshot oder den Live-Stand verwenden (oder eine Mischung,
 wenn neue Rezepte zum geladenen Snapshot hinzugefügt wurden).
 
 Logik:
-1. Rezepte zu den IDs aus DB laden
+1. Rezepte zu den IDs aus DB laden (oder aus optionalem Snapshot, siehe 6.X)
 2. Pro Rezept Mengen mit `personen / 1` multiplizieren (Basis = 1 Person)
 3. Gleiche Items (Match auf `name` + `unit`, case-insensitive) **über
    alle Rezepte und alle Rezept-internen Gruppen hinweg** summieren.
    Die `group`-Information aus den Rezepten wird bewusst ignoriert —
    sie strukturiert das Kochen ("Teig", "Käse", "Hauptzutaten"), ist
-   aber für den Einkauf irrelevant: man kauft 1× Mehl, egal ob es im
-   Rezept zum Teig oder zur Soße gehört.
-4. Alphabetisch nach `name` sortieren
-
-Antwort behält das Listen-Format aus historischen Gründen
-(Array von Gruppen-Objekten), enthält aber genau einen Eintrag mit
-leerer `group`:
+   aber für den Einkauf irrelevant.
+4. **Pro Department gruppieren** (siehe 5.3). Items mit gleichem name+unit
+   merken sich das first-seen Department; Items ohne Department landen
+   in „Sonstiges".
+5. Innerhalb jedes Departments alphabetisch nach `name` sortieren;
+   Departments in der kanonischen Reihenfolge aus `valid_departments()`,
+   gefolgt von „Sonstiges" am Ende.
 
 ```json
 { "liste": [
-  { "group": "",
+  { "group": "Obst/Gemüse",
+    "items": [{ "quantity": 200, "unit": "g", "name": "Tomate" }] },
+  { "group": "Backen",
     "items": [
-      { "quantity": 2, "unit": "Pcs", "name": "Ei" },
-      { "quantity": 500, "unit": "g", "name": "Mehl" }
-    ] }
+      { "quantity": 500, "unit": "g", "name": "Mehl" },
+      { "quantity": 1,   "unit": "Pck", "name": "Hefe" }
+    ] },
+  { "group": "Sonstiges",
+    "items": [{ "quantity": 100, "unit": "g", "name": "Butter" }] }
 ] }
 ```
 
-Das Frontend rendert bei leerem `group`-String keinen `<h3>`-Header
-und zeigt nur eine flache `<ul>`-Liste.
+Das Frontend rendert pro Eintrag einen `<h3>`-Header (Department-Name)
+und eine `<ul>`-Liste mit den Items.
 
 ### `GET /api/cart.php`
 
@@ -783,6 +823,7 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 | Detail-Endpunkt liefert Liste statt Einzel-Rezept | Pfad-Regex matcht nicht | aktueller Regex matcht `/api/rezepte/{id}` UND `/api/rezepte.php/{id}` |
 | Cart enthält gelöschtes Rezept | Cart wird auf Server-Seite nicht synchronisiert | Frontend ruft `cart.remove()` nach `DELETE` auf — bei direkten DB-Eingriffen muss man im Browser localStorage manuell leeren |
 | Upload bricht mit "Unbekannte Einheit" ab | Einheit ist nicht in der Map (siehe 5.2) | Entweder JSON anpassen (z. B. `Stk` → `Stück`), oder `unit_normalization_map()` in `api/translation.php` ergänzen + ggf. `translation_map.json` aktualisieren |
+| Upload bricht mit "Unbekannte Abteilung" ab | `department`-Wert nicht in der Liste (siehe 5.3) | JSON anpassen auf einen der erlaubten Werte (Obst/Gemüse, Frische Theke, Non-Food, Getränke, Backen, Grundnahrungsmittel) oder die Liste in `valid_departments()` erweitern |
 
 ---
 
@@ -817,6 +858,16 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 - `mb_strtolower`-Fallback auf `strtolower` in `einkaufsliste.php`
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
+
+### 2026-05-06 — Department/Abteilung für Ingredient-Items
+
+- Neues optionales Feld `department` (DE: `abteilung`) auf jedem Ingredient-Item. Erlaubte Werte: `Obst/Gemüse`, `Frische Theke`, `Non-Food`, `Getränke`, `Backen`, `Grundnahrungsmittel`. Match case-insensitiv, beim Save kanonisch normalisiert. Unbekannter Wert → HTTP 400.
+- `translation_map.json`: `abteilung↔department` ergänzt.
+- `api/translation.php`: neue `valid_departments()`, `normalize_single_department()`, `normalize_departments_in_recipe()`. In `normalize_recipe()` integriert.
+- `api/einkaufsliste.php`: Aggregation gruppiert jetzt nach Department. Items ohne Department landen in „Sonstiges". Department-Reihenfolge im Output entspricht `valid_departments()`, gefolgt von „Sonstiges". Wenn dieselbe Zutat in zwei Rezepten unterschiedliche Departments hat, gewinnt first-seen.
+- `recipe_template.json`: leeres `department`-Feld als Beispiel.
+- Upload-Vorschau (`views/upload.js`): zeigt jetzt einen kleinen Tag `<span class="dept-tag">` mit dem Department neben dem Item-Namen.
+- Bestehende gespeicherte Listen / Snapshots ohne `department` funktionieren weiterhin — alle Items landen in „Sonstiges" bis sie nach-bearbeitet werden.
 
 ### 2026-05-06 — Snapshot-Modus für gespeicherte Listen
 

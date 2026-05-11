@@ -15,6 +15,7 @@ JavaScript framework, no Composer.
 - **Shared shopping list**: cart is server-backed and shared across all users (no auth — single household / small group use case)
 - **Named saved lists**: save the current cart under a name, load it back later, manage multiple saved lists
 - **Frozen snapshots**: saved lists capture a frozen copy of the referenced recipes — editing a recipe later does not retroactively change a previously saved shopping list
+- **Store-section grouping**: ingredients can carry an optional `department` (Obst/Gemüse, Frische Theke, Non-Food, Getränke, Backen, Grundnahrungsmittel); the generated shopping list groups items accordingly with anything unlabelled under "Sonstiges"
 - **Persistent check-off state**: ticked items on the shopping list stay ticked across reloads and are shared across devices (great for "I already got the flour" coordination); survives serving-size changes
 
 **Tech Stack**

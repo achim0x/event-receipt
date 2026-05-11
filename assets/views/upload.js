@@ -125,7 +125,8 @@ export function renderUpload(root) {
             <ul class="zutaten">
                 ${(g.items || []).map(it => {
                     const u = displayUnit(it.unit);
-                    return `<li><strong>${escapeHtml(formatQuantity(it.quantity))}${u ? ' ' + escapeHtml(u) : ''}</strong> ${escapeHtml(it.name || '')}</li>`;
+                    const dept = it.department ? ` <span class="dept-tag">${escapeHtml(it.department)}</span>` : '';
+                    return `<li><strong>${escapeHtml(formatQuantity(it.quantity))}${u ? ' ' + escapeHtml(u) : ''}</strong> ${escapeHtml(it.name || '')}${dept}</li>`;
                 }).join('')}
             </ul>
         `).join('');
