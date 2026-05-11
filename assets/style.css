@@ -290,6 +290,35 @@ textarea#editor {
 .preview dt { font-weight: 600; color: var(--muted); }
 .preview dd { margin: 0; }
 
+.bulk-section {
+    margin-top: 3rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+}
+.bulk-section > summary {
+    cursor: pointer;
+    font-weight: 600;
+    padding: 0.25rem 0;
+    user-select: none;
+}
+.bulk-section > summary:hover { color: var(--accent); }
+.bulk-body { padding-top: 1rem; }
+.bulk-body h3 {
+    font-size: 1rem;
+    margin: 1rem 0 0.4rem;
+}
+.bulk-import-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin: 0.5rem 0;
+}
+.bulk-failed { margin-top: 0.5rem; }
+.bulk-failed ul { font-size: 0.9rem; }
+
 .dept-tag {
     display: inline-block;
     font-size: 0.75rem;

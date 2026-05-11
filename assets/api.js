@@ -121,6 +121,19 @@ export const api = {
         return handle(res);
     },
 
+    async exportCollection() {
+        const res = await fetch(`${BASE}/export.php`);
+        return handle(res);
+    },
+
+    async importCollection(file, { dryRun = false } = {}) {
+        const fd = new FormData();
+        fd.append('datei', file);
+        if (dryRun) fd.append('dry_run', '1');
+        const res = await fetch(`${BASE}/import.php`, { method: 'POST', body: fd });
+        return handle(res);
+    },
+
     async clearChecks(kategorie = '') {
         const url = kategorie
             ? `${BASE}/checks.php?${new URLSearchParams({ kategorie })}`

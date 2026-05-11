@@ -128,6 +128,7 @@ export async function renderRezeptDetail(root, id) {
                     ${inCart ? '✓ In Einkaufsliste — Personen aktualisieren' : '+ Zur Einkaufsliste'}
                 </button>
                 <a href="rezept/${rezept.id}/bearbeiten" data-link class="btn">✎ Bearbeiten</a>
+                <button id="export-rezept" type="button" class="btn">💾 Als JSON</button>
                 <button id="delete-rezept" type="button" class="btn danger">🗑 Löschen</button>
             </div>
 
@@ -189,6 +190,29 @@ export async function renderRezeptDetail(root, id) {
             alert('Löschen fehlgeschlagen: ' + err.message);
         }
     });
+
+    root.querySelector('#export-rezept')?.addEventListener('click', () => {
+        // Daten-Blob (EN-Keys, kanonisch) — direkt re-importierbar via upload/import
+        const json = JSON.stringify(rezept.daten, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = sanitizeFilename(rezept.titel || 'rezept') + '.json';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    });
+}
+
+function sanitizeFilename(s) {
+    // Erlaubt Buchstaben (inkl. Umlaute), Ziffern, _ - . und Leerzeichen.
+    // Alles andere wird zu '_'. Begrenzt auf 80 Zeichen.
+    return String(s)
+        .replace(/[^a-zA-Z0-9äöüÄÖÜß_\- .]/g, '_')
+        .trim()
+        .slice(0, 80) || 'rezept';
 }
 
 export async function renderRezeptEdit(root, id) {

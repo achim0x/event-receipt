@@ -195,31 +195,50 @@ function normalize_units_in_recipe(array &$recipe, array &$errors): void {
     }
 }
 
-function normalize_recipe(mixed $data): array {
+/**
+ * Wird vom Batch-Import per try/catch verwendet, damit per-record-Validation
+ * möglich ist. Wirft RecipeValidationException statt das Script zu beenden.
+ */
+class RecipeValidationException extends Exception {}
+
+/**
+ * Validiert + normalisiert ein Rezept. Wirft RecipeValidationException bei
+ * Fehlern. Single-Request-Endpunkte nutzen die Wrapper-Funktion `normalize_recipe`
+ * unten die in `json_error` übersetzt.
+ */
+function normalize_recipe_strict(mixed $data): array {
     if (!is_array($data) || array_is_list($data)) {
-        json_error('JSON muss ein Objekt sein', 400);
+        throw new RecipeValidationException('JSON muss ein Objekt sein');
     }
     $map = load_translation_map();
     $normalized = translate_keys($data, $map);
 
     if (empty($normalized['title']) || !is_string($normalized['title'])) {
-        json_error('Pflichtfeld "title" (oder "titel") fehlt', 400);
+        throw new RecipeValidationException('Pflichtfeld "title" (oder "titel") fehlt');
     }
     if (empty($normalized['ingredients']) || !is_array($normalized['ingredients'])) {
-        json_error('Pflichtfeld "ingredients" (oder "zutaten") fehlt', 400);
+        throw new RecipeValidationException('Pflichtfeld "ingredients" (oder "zutaten") fehlt');
     }
 
     $unitErrors = [];
     normalize_units_in_recipe($normalized, $unitErrors);
     if (!empty($unitErrors)) {
-        json_error('Einheiten-Fehler: ' . implode('; ', $unitErrors), 400);
+        throw new RecipeValidationException('Einheiten-Fehler: ' . implode('; ', $unitErrors));
     }
 
     $deptErrors = [];
     normalize_departments_in_recipe($normalized, $deptErrors);
     if (!empty($deptErrors)) {
-        json_error('Abteilungs-Fehler: ' . implode('; ', $deptErrors), 400);
+        throw new RecipeValidationException('Abteilungs-Fehler: ' . implode('; ', $deptErrors));
     }
 
     return $normalized;
+}
+
+function normalize_recipe(mixed $data): array {
+    try {
+        return normalize_recipe_strict($data);
+    } catch (RecipeValidationException $e) {
+        json_error($e->getMessage(), 400);
+    }
 }

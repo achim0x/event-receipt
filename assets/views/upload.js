@@ -39,6 +39,24 @@ export function renderUpload(root) {
 
             <div id="status"></div>
             <div id="preview"></div>
+
+            <details class="bulk-section">
+                <summary>📦 Komplette Sammlung verwalten (Export / Batch-Import)</summary>
+                <div class="bulk-body">
+                    <h3>Exportieren</h3>
+                    <p class="muted">Lade alle Rezepte als einzelne JSON-Datei herunter — geeignet als Backup oder fürs Umziehen auf eine andere Installation.</p>
+                    <p><a href="api/export.php" download class="btn">📦 Alle Rezepte herunterladen</a></p>
+
+                    <h3>Importieren</h3>
+                    <p class="muted">Akzeptiert das vom Export erzeugte Format <code>{recipes: [...]}</code> oder ein nacktes Array von Rezepten. Bestehende Rezepte werden nicht überschrieben — die importierten kommen als neue Einträge dazu. Pro Rezept wird validiert; defekte Einträge werden mit Begründung gemeldet und übersprungen, der Rest landet trotzdem.</p>
+                    <div class="bulk-import-row">
+                        <input type="file" id="bulk-file" accept="application/json,.json">
+                        <button type="button" class="btn" id="bulk-dryrun">🔍 Prüfen (dry-run)</button>
+                        <button type="button" class="btn primary" id="bulk-import">📥 Importieren</button>
+                    </div>
+                    <div id="bulk-status"></div>
+                </div>
+            </details>
         </section>
     `;
 
@@ -191,4 +209,40 @@ export function renderUpload(root) {
         const file = e.dataTransfer?.files?.[0];
         if (file) handleFile(file);
     });
+
+    // --- Bulk Import (Sammlung) ---
+    const bulkFile = root.querySelector('#bulk-file');
+    const bulkStatus = root.querySelector('#bulk-status');
+
+    async function runBulkImport(dryRun) {
+        const file = bulkFile.files[0];
+        if (!file) {
+            bulkStatus.innerHTML = `<p class="error">Bitte zuerst eine Datei wählen.</p>`;
+            return;
+        }
+        bulkStatus.innerHTML = `<p class="muted">${dryRun ? 'Prüfe…' : 'Importiere…'}</p>`;
+        try {
+            const result = await api.importCollection(file, { dryRun });
+            const headline = dryRun
+                ? `${result.imported} von ${result.total} Rezepten wären importierbar`
+                : `✓ ${result.imported} von ${result.total} Rezepten importiert`;
+
+            let html = `<p class="${result.imported === result.total ? 'success' : 'info'}">${escapeHtml(headline)}</p>`;
+            if (result.failed && result.failed.length) {
+                html += `<details open class="bulk-failed">
+                    <summary>${result.failed.length} ${result.failed.length === 1 ? 'Fehler' : 'Fehler'}</summary>
+                    <ul>`;
+                for (const f of result.failed) {
+                    html += `<li>#${f.index} <strong>${escapeHtml(f.title)}</strong>: ${escapeHtml(f.error)}</li>`;
+                }
+                html += `</ul></details>`;
+            }
+            bulkStatus.innerHTML = html;
+        } catch (err) {
+            bulkStatus.innerHTML = `<p class="error">Fehler: ${escapeHtml(err.message)}</p>`;
+        }
+    }
+
+    root.querySelector('#bulk-dryrun').addEventListener('click', () => runBulkImport(true));
+    root.querySelector('#bulk-import').addEventListener('click', () => runBulkImport(false));
 }

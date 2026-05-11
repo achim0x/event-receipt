@@ -54,7 +54,9 @@ chmod 777 data/        # Apache muss SQLite-DB anlegen können
 │   ├── einkaufsliste.php       # POST → aggregierte Zutatenliste
 │   ├── cart.php                # GET / PUT — geteilter aktueller Cart (Singleton)
 │   ├── saved_lists.php         # GET / POST / DELETE — benannte gespeicherte Listen
-│   └── checks.php              # GET / POST / DELETE — geteilte abgehakt-Markierungen
+│   ├── checks.php              # GET / POST / DELETE — geteilte abgehakt-Markierungen
+│   ├── export.php              # GET — komplette Sammlung als JSON-Wrapper
+│   └── import.php              # POST — Batch-Import mit per-recipe-Validation
 ├── assets/
 │   ├── config.js               # APP_BASE — aus import.meta.url abgeleitet
 │   ├── app.js                  # Router + Cart-State (server-backed, lokal gemirrort)
@@ -510,6 +512,56 @@ muss non-empty sein. `checked: true` → INSERT, `false` → DELETE.
 Ohne Parameter: löscht **alle** Häkchen. Mit `?kategorie=zutaten`:
 nur die einer Kategorie.
 
+### `GET /api/export.php`
+
+Liefert die komplette Rezeptsammlung als JSON-Wrapper:
+
+```json
+{
+  "exported_at": "2026-05-11T11:49:24+00:00",
+  "version": 1,
+  "count": 5,
+  "recipes": [
+    { /* full daten of rezept 1 — kanonisch, EN-Keys */ },
+    ...
+  ]
+}
+```
+
+Antwort enthält den `Content-Disposition: attachment; filename="rezepte-export-YYYY-MM-DD.json"`-Header, damit der Browser bei
+direkter Navigation einen Download-Dialog zeigt. JS-Clients dürfen den
+ignorieren und den JSON-Body direkt verarbeiten.
+
+### `POST /api/import.php`
+
+Batch-Import. Akzeptiert beide Formate:
+- **Wrapper**: `{recipes: [...]}` — passt direkt zum Export-Format
+- **Bare array**: `[...]` — Liste von Rezept-Objekten
+
+Eingabemodi wie bei `upload.php`: `multipart/form-data` mit Feld `datei`
+oder Roh-JSON im Body. Max. 5 MB.
+
+Per-Recipe-Validation (gleiche Logik wie Upload: Pflichtfelder,
+Einheiten-Normalisierung, Department-Validierung). Defekte Einträge
+werden gemeldet, der Rest wird trotzdem importiert.
+
+Optional `dry_run=1` (POST- oder GET-Param): nur validieren, nichts
+schreiben.
+
+Antwort:
+
+```json
+{
+  "total": 4,
+  "imported": 2,
+  "failed": [
+    { "index": 2, "title": "...", "error": "Pflichtfeld \"ingredients\" fehlt" },
+    { "index": 3, "title": "...", "error": "Einheiten-Fehler: ..." }
+  ],
+  "dry_run": false
+}
+```
+
 ### Method-Override
 
 Falls Apache PUT/DELETE blockiert (z. B. restriktive Konfigs), akzeptiert
@@ -708,6 +760,7 @@ befüllt.
 werden im Frontend live skaliert. Buttons:
 - "+ Zur Einkaufsliste" (oder "Personen aktualisieren" wenn schon im Cart)
 - "✎ Bearbeiten" → `/rezept/{id}/bearbeiten`
+- "💾 Als JSON" → Download des `daten`-Blobs als `<titel>.json` (client-seitig, kein Server-Roundtrip). Datei ist re-importierbar via Upload/Import.
 - "🗑 Löschen" → Confirm + `DELETE` + Cart-Cleanup + Navigation auf `/`
 
 **`renderRezeptEdit`** — Textarea mit aktuellem JSON, Speichern/Reset/
@@ -718,7 +771,17 @@ neu eingetragen, falls das Rezept dort liegt.
 (1) Download-Link auf `recipe_template.json` (base-relativ, mit
 `download`-Attribut → direkter Filesystem-Download statt Browser-
 Anzeige). (2) Beispiel-KI-Prompt zur Rezept-Extraktion aus Webseiten,
-mit Copy-to-Clipboard-Button. Nach Auswahl wird **automatisch ein
+mit Copy-to-Clipboard-Button.
+
+Unten klappbarer Bereich „**📦 Komplette Sammlung verwalten**":
+- **Export**: einfacher `<a href="api/export.php" download>` — Browser
+  triggert Download direkt, kein JS nötig.
+- **Import**: File-Input + zwei Buttons („🔍 Prüfen (dry-run)" und
+  „📥 Importieren"). Aufruf von `api.importCollection(file, {dryRun})`
+  → Server validiert per-recipe → Antwort wird als „X von Y importiert"
+  plus aufklappbare Fehlerliste angezeigt.
+
+Nach Auswahl einer Einzeldatei wird **automatisch ein
 dry-run** an `/api/upload.php?dry_run=1` geschickt;
 das normalisierte Rezept wird mit `displayUnit()`-übersetzten
 Einheiten angezeigt. Warnungen (z. B. neue Kategorie) erscheinen in
@@ -858,6 +921,14 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 - `mb_strtolower`-Fallback auf `strtolower` in `einkaufsliste.php`
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
+
+### 2026-05-11 — JSON-Export für einzelne Rezepte + Export/Import der Sammlung
+
+- **Single-Recipe-Export**: Detail-View bekommt „💾 Als JSON"-Button. Lädt das `daten`-JSON client-seitig als `<titel>.json` herunter (kein Server-Endpunkt nötig). Datei ist re-importierbar via Upload oder Batch-Import.
+- **Collection-Export**: neuer `api/export.php` GET — liefert `{exported_at, version, count, recipes: []}`-Wrapper aller Rezepte. `Content-Disposition: attachment` für direkten Browser-Download.
+- **Collection-Import**: neuer `api/import.php` POST. Akzeptiert Wrapper-Format oder bare Array. Per-recipe-Validation (`normalize_recipe_strict` wirft `RecipeValidationException` statt zu exiten — neu refactored). Defekte Einträge werden als `{index, title, error}` gemeldet, der Rest wird trotzdem importiert (partial success). Optional `dry_run=1` für reine Prüfung. Max. 5 MB.
+- `translation.php`: `normalize_recipe()` ist jetzt ein dünner Wrapper um `normalize_recipe_strict()`, der die Exception in den bestehenden `json_error`-Flow übersetzt. Single-Request-Endpunkte (upload, PUT) bleiben unverändert kompatibel.
+- Upload-View hat unten eine klappbare Sektion „📦 Komplette Sammlung verwalten" mit Export-Link und Batch-Import-UI (File-Input + Prüfen/Import-Buttons + Fehlerliste).
 
 ### 2026-05-06 — Department/Abteilung für Ingredient-Items
 
