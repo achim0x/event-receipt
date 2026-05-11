@@ -49,8 +49,9 @@ The `mbstring` extension is **optional** — the code falls back to `strtolower(
 
 ```bash
 sudo apt install apache2 php libapache2-mod-php
-sudo apt install php-sqlite3        # critical — see "Common pitfalls"
-sudo a2enmod rewrite
+sudo apt install php-sqlite3                # critical — see "Common pitfalls"
+sudo a2enmod rewrite headers                # rewrite: SPA routing; headers: CSP & security headers
+sudo systemctl reload apache2
 ```
 
 > **Important**: on systems with multiple PHP versions installed in
@@ -99,11 +100,19 @@ sudo chmod 775 <install-dir>/data
 sudo chown www-data:www-data <install-dir>/data
 ```
 
-### 3b. Enable `mod_headers` (security headers)
+### 3b. Verify `mod_headers` is enabled (already done in step 1)
 
 The bundled `.htaccess` sets a strict Content-Security-Policy plus
-`X-Frame-Options`, `X-Content-Type-Options` and `Referrer-Policy`.
-These need Apache's `mod_headers`:
+`X-Frame-Options`, `X-Content-Type-Options` and `Referrer-Policy` on
+**static** files — these need Apache's `mod_headers` (was enabled in
+step 1 via `a2enmod rewrite headers`). To double-check:
+
+```bash
+apachectl -M 2>&1 | grep headers
+# expected output: headers_module (shared)
+```
+
+If missing:
 
 ```bash
 sudo a2enmod headers
