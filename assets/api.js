@@ -58,11 +58,11 @@ export const api = {
         return handle(res);
     },
 
-    async einkaufsliste(rezepte) {
+    async einkaufsliste(rezepte, snapshot = {}) {
         const res = await fetch(`${BASE}/einkaufsliste.php`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ rezepte }),
+            body: JSON.stringify({ rezepte, snapshot }),
         });
         return handle(res);
     },
@@ -72,11 +72,11 @@ export const api = {
         return handle(res);
     },
 
-    async putCart(items) {
+    async putCart(items, snapshot = {}) {
         const res = await fetch(`${BASE}/cart.php`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ items }),
+            body: JSON.stringify({ items, snapshot }),
         });
         return handle(res);
     },

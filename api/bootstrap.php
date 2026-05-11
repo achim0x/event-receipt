@@ -51,25 +51,39 @@ $db->exec("
 $db->exec("CREATE INDEX IF NOT EXISTS idx_titel ON rezepte(titel);");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_kategorie ON rezepte(kategorie);");
 
-// Singleton-Tabelle für die geteilte aktuelle Einkaufsliste — eine Zeile (id=1)
+// Singleton-Tabelle für die geteilte aktuelle Einkaufsliste — eine Zeile (id=1).
+// `snapshot` ist optionaler Frozen-Daten-Blob (JSON Object {id: rezeptDaten})
+// für den Snapshot-Modus: wenn nicht leer, werden Mengen/Zubereitung aus
+// dem Snapshot statt der aktuellen rezepte-Tabelle gerechnet.
 $db->exec("
     CREATE TABLE IF NOT EXISTS einkaufsliste_aktuell (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         items TEXT NOT NULL DEFAULT '[]',
+        snapshot TEXT NOT NULL DEFAULT '{}',
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 ");
 $db->exec("INSERT OR IGNORE INTO einkaufsliste_aktuell (id, items) VALUES (1, '[]');");
 
-// Benannte gespeicherte Einkaufslisten
+// Benannte gespeicherte Einkaufslisten. `snapshot` ist beim Save eingefrorene
+// Kopie der relevanten Rezepte → spätere Änderungen wirken sich nicht aus.
 $db->exec("
     CREATE TABLE IF NOT EXISTS einkaufsliste_gespeichert (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL UNIQUE,
         items TEXT NOT NULL,
+        snapshot TEXT NOT NULL DEFAULT '{}',
         gespeichert_am DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 ");
+
+// Idempotente Migration für Bestands-DBs (Tabellen vor Snapshot-Feature angelegt)
+foreach (['einkaufsliste_aktuell', 'einkaufsliste_gespeichert'] as $tbl) {
+    $cols = $db->query("PRAGMA table_info($tbl)")->fetchAll(PDO::FETCH_COLUMN, 1);
+    if (!in_array('snapshot', $cols, true)) {
+        $db->exec("ALTER TABLE $tbl ADD COLUMN snapshot TEXT NOT NULL DEFAULT '{}'");
+    }
+}
 
 // Abgehakte Einträge (geteilt zwischen allen Nutzern).
 // Schlüssel ist normalisiert (lowercase) als 'name||unit' — Match überlebt

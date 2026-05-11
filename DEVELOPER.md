@@ -92,16 +92,18 @@ CREATE INDEX IF NOT EXISTS idx_kategorie ON rezepte(kategorie);
 -- Geteilte aktuelle Einkaufsliste (Singleton — genau eine Zeile id=1)
 CREATE TABLE IF NOT EXISTS einkaufsliste_aktuell (
     id INTEGER PRIMARY KEY CHECK (id = 1),
-    items TEXT NOT NULL DEFAULT '[]',  -- JSON: [{id, titel, personen}]
+    items TEXT NOT NULL DEFAULT '[]',     -- JSON: [{id, titel, personen}]
+    snapshot TEXT NOT NULL DEFAULT '{}',  -- JSON: {id: {titel, kategorie, quelle, zubereitungszeit, daten}}
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 INSERT OR IGNORE INTO einkaufsliste_aktuell (id, items) VALUES (1, '[]');
 
--- Benannte gespeicherte Listen
+-- Benannte gespeicherte Listen (mit eingefrorenem Recipe-Snapshot)
 CREATE TABLE IF NOT EXISTS einkaufsliste_gespeichert (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
     items TEXT NOT NULL,
+    snapshot TEXT NOT NULL DEFAULT '{}',
     gespeichert_am DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -313,8 +315,17 @@ nach Bestätigung den eigentlichen Save.
 Body:
 
 ```json
-{ "rezepte": [ { "id": 1, "personen": 4 }, { "id": 2, "personen": 2 } ] }
+{
+  "rezepte": [ { "id": 1, "personen": 4 }, { "id": 2, "personen": 2 } ],
+  "snapshot": { "1": { "daten": {...} } }
+}
 ```
+
+`snapshot` ist **optional**. Wenn vorhanden, wird für jede ID dort
+nachgeschaut; nicht gefundene IDs fallen auf die `rezepte`-Tabelle
+zurück. Damit kann der Client beim Aggregieren wahlweise den
+gefrorenen Snapshot oder den Live-Stand verwenden (oder eine Mischung,
+wenn neue Rezepte zum geladenen Snapshot hinzugefügt wurden).
 
 Logik:
 1. Rezepte zu den IDs aus DB laden
@@ -347,28 +358,35 @@ und zeigt nur eine flache `<ul>`-Liste.
 ### `GET /api/cart.php`
 
 Liefert die geteilte aktuelle Einkaufsliste (Singleton, von allen Nutzern
-gemeinsam editiert):
+gemeinsam editiert) inklusive optionalem Recipe-Snapshot:
 
 ```json
 {
   "items": [
     { "id": 3, "titel": "Spaghetti Carbonara", "personen": 4 }
   ],
+  "snapshot": {
+    "3": { "titel": "...", "kategorie": "...", "quelle": "...",
+           "zubereitungszeit": "...", "daten": { /* full recipe */ } }
+  },
   "updated_at": "2026-05-06 22:05:09"
 }
 ```
 
+`snapshot` ist `{}` wenn der Cart im Live-Modus läuft. Siehe Sektion 6.X
+(Snapshot-Modus) für die Semantik.
+
 ### `PUT /api/cart.php`
 
-Ersetzt die aktuelle Liste. Body:
+Ersetzt items und snapshot. Body:
 
 ```json
-{ "items": [ { "id": 3, "titel": "...", "personen": 4 } ] }
+{ "items": [{ "id": 3, "titel": "...", "personen": 4 }], "snapshot": {} }
 ```
 
-Server sanitiziert: nur `id`, `titel`, `personen` werden behalten;
-`personen` wird auf min. 1 geclamped; Items ohne `id` werden verworfen.
-Max. 100 KB.
+Server sanitiziert items (nur `id`, `titel`, `personen`, `personen >= 1`,
+Items ohne `id` verworfen); `snapshot` wird als opaque JSON-Object
+gespeichert. Max. 1 MB.
 
 **Race-Condition**: Last-Write-Wins. Mehrere parallel editierende Tabs
 können sich gegenseitig überschreiben — für den Use-Case "kleiner
@@ -386,24 +404,31 @@ Listet alle benannten gespeicherten Listen (Metadata, ohne Items):
 }
 ```
 
-### `GET /api/saved_lists.php?name=<name>`
-
-Lädt eine einzelne Liste mit allen Items:
-
-```json
-{ "name": "...", "gespeichert_am": "...", "items": [...] }
-```
-
-`404` wenn nicht vorhanden.
-
 ### `POST /api/saved_lists.php`
 
-Speichert eine Liste unter einem Namen. Body: `{name, items}`. Existiert
-der Name bereits → **Upsert** (überschreibt). Name max. 80 Zeichen,
-Body max. 100 KB.
+Speichert eine Liste unter einem Namen. Body: `{name, items}` — der
+**Snapshot wird server-seitig automatisch aus der aktuellen
+rezepte-Tabelle gebaut**. Der Client muss/darf den Snapshot nicht
+mitschicken. Damit ist „save = freeze" garantiert konsistent.
+
+Existiert der Name bereits → **Upsert** (überschreibt items + snapshot
++ gespeichert_am). Name max. 80 Zeichen, Body max. 1 MB.
 
 ```json
-{ "success": true, "name": "Wochenplan KW18", "count": 2 }
+{ "success": true, "name": "Wochenplan KW18", "count": 2, "snapshot_size": 2 }
+```
+
+### `GET /api/saved_lists.php?name=<name>`
+
+Lädt eine einzelne Liste **inklusive Snapshot**:
+
+```json
+{
+  "name": "...",
+  "gespeichert_am": "...",
+  "items": [...],
+  "snapshot": { "3": {...}, "6": {...} }
+}
 ```
 
 ### `DELETE /api/saved_lists.php?name=<name>`
@@ -451,6 +476,49 @@ Falls Apache PUT/DELETE blockiert (z. B. restriktive Konfigs), akzeptiert
 `rezepte.php` auch `POST` mit `X-HTTP-Method-Override: PUT|DELETE` oder
 `?_method=PUT|DELETE`. Aktuell wird das vom Frontend nicht genutzt, ist
 aber als Fallback vorhanden.
+
+---
+
+## 6.X Snapshot-Modus für gespeicherte Listen
+
+**Problem**: Gespeicherte Listen speichern nur Rezept-IDs. Wenn ein
+Rezept später bearbeitet (oder gelöscht) wird, würde die geladene
+Liste andere Mengen/Inhalte produzieren als zum Speicherzeitpunkt.
+
+**Lösung**: Beim Speichern wird zusätzlich ein **Snapshot** der
+verlinkten Rezepte angelegt — eine Map `{rezept_id: {titel, kategorie,
+quelle, zubereitungszeit, daten}}`, komplett aus der `rezepte`-Tabelle
+abgegriffen. Beim Laden geht der Snapshot in den Cart-State; alle
+nachfolgenden Aggregations- und Print-Operationen bevorzugen die
+gefrorenen Daten.
+
+**Lebenszyklus**:
+1. **Speichern** (POST /api/saved_lists.php) → Server baut Snapshot aus
+   aktueller `rezepte`-Tabelle für alle Cart-IDs. Client muss keinen
+   Snapshot mitschicken.
+2. **Laden** (GET /api/saved_lists.php?name=X) → Server liefert items +
+   snapshot. Client setzt `cart.replaceAll(items, snapshot)`. Cart-PUT
+   persistiert beides in `einkaufsliste_aktuell.snapshot`.
+3. **Aggregieren / Drucken** → Client schickt Snapshot mit (oder nutzt
+   ihn direkt im `loadCartRecipes`). Server bevorzugt Snapshot-`daten`
+   vor `rezepte`-Tabelle-Lookup.
+4. **Re-Speichern** (gleicher Name) → Server baut neuen Snapshot aus
+   aktueller `rezepte`-Tabelle. Damit kann der User eine Liste
+   bewusst „aktualisieren": load → re-save überschreibt den alten
+   Snapshot.
+5. **Snapshot verwerfen** (UI-Button im Banner) → `cart.replaceAll(
+   cart.all(), {})` — items behalten, Snapshot leeren, Aggregation
+   kommt wieder aus `rezepte`-Tabelle (Live-Modus).
+
+**Mischbetrieb**: Wenn User nach dem Laden einer Liste manuell ein
+neues Rezept hinzufügt, hat dieses keinen Snapshot-Eintrag. Die
+Aggregation verwendet für alte Items den Snapshot, für neue die
+Live-Daten — und unverändert für entfernte Items wird der
+Snapshot-Eintrag automatisch verworfen (`cart.remove`).
+
+**Größe**: Bis zu 1 MB pro Cart und pro gespeicherter Liste (siehe
+`MAX_CART_BYTES` / `MAX_LIST_BYTES`). Ein Rezept mit normaler Komplexität
+benötigt 2–5 KB → Platz für 200+ Rezepte pro Liste.
 
 ---
 
@@ -540,7 +608,10 @@ Globaler State minimal — nur die Einkaufsliste, **server-backed** mit
 lokalem Mirror:
 
 ```js
-let cartState = [];  // [{ id, titel, personen }] — vom Server geladen
+let cartState = {
+    items: [],     // [{ id, titel, personen }]
+    snapshot: {},  // {id: {titel, kategorie, quelle, zubereitungszeit, daten}}
+};
 ```
 
 **Sync-Strategie**:
@@ -560,9 +631,17 @@ den geplanten Use-Case (kleiner Personenkreis teilt eine Liste)
 akzeptabel.
 
 Cart-API (vom `cart`-Objekt exportiert):
-`all()`, `has(id)`, `add(rezept, personen)`, `remove(id)`,
-`setPersonen(id, n)`, `clear()`, **`replaceAll(items)`** (für „Liste
-laden"), **`refresh()`** (frisch vom Server holen).
+`all()`, **`snapshot()`** (Map), `has(id)`, `add(rezept, personen)`,
+`remove(id)`, `setPersonen(id, n)`, `clear()`,
+**`replaceAll(items, snapshot)`** (für „Liste laden"), **`refresh()`**
+(frisch vom Server holen).
+
+Snapshot-Verhalten der Mutationen:
+- `add` → Snapshot unverändert (neue Items sind nicht gefroren)
+- `remove` → entfernt auch den orphaned Snapshot-Eintrag dieser ID
+- `setPersonen` → Snapshot unverändert
+- `clear` → Snapshot wird mitgeleert
+- `replaceAll(items, snapshot)` → beide werden ersetzt
 
 **Routes** (`pushState`-basiert, Patterns matchen in Reihenfolge —
 spezifischere zuerst):
@@ -738,6 +817,17 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 - `mb_strtolower`-Fallback auf `strtolower` in `einkaufsliste.php`
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
+
+### 2026-05-06 — Snapshot-Modus für gespeicherte Listen
+
+- **Problem-Fix**: Gespeicherte Listen referenzierten nur Rezept-IDs — wenn ein Rezept später bearbeitet/gelöscht wurde, änderte sich auch die geladene Liste retroaktiv. Mit Snapshot-Modus ist die Liste eingefroren = unabhängig von späteren Änderungen.
+- Schema-Erweiterung: `snapshot` TEXT-Spalte (JSON) in `einkaufsliste_aktuell` und `einkaufsliste_gespeichert`. Idempotente Migration via PRAGMA table_info-Check in bootstrap.php — fügt die Spalte für bestehende DBs nach.
+- Beim **Speichern** baut der Server den Snapshot automatisch aus der aktuellen `rezepte`-Tabelle. Client schickt nur `{name, items}`.
+- Beim **Laden** flowt der Snapshot in den Cart-State. `cart.replaceAll(items, snapshot)` persistiert ihn auch im geteilten `einkaufsliste_aktuell.snapshot`.
+- `einkaufsliste.php` (Aggregation) akzeptiert optionalen `snapshot`-Param und bevorzugt diese Daten gegenüber der DB. `rezepte_print.js` `loadCartRecipes` nutzt Snapshot-Daten direkt statt `getRezept` zu callen wenn vorhanden.
+- UI: Blaues 📸-Banner oben in der Einkaufsliste-View signalisiert aktiven Snapshot, plus „Snapshot verwerfen"-Button (Items behalten, Snapshot leeren → zurück zu Live-Modus).
+- **Mischbetrieb**: Nach Load-Snapshot manuell hinzugefügte Rezepte landen ohne Snapshot-Eintrag. Aggregation nutzt Snapshot für alte, Live-Daten für neue Items.
+- MAX_CART_BYTES und MAX_LIST_BYTES auf 1 MB hochgesetzt (Snapshot kann groß werden — ~5KB pro Rezept × 200 Rezepte Headroom).
 
 ### 2026-05-06 — Abgehakt-Status server-seitig persistent
 

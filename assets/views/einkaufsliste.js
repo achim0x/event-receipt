@@ -184,11 +184,18 @@ export async function renderEinkaufsliste(root) {
     function draw() {
         cachedRecipes = null;
         const items = cart.all();
+        const snapshot = cart.snapshot();
+        const snapshotCount = snapshot ? Object.keys(snapshot).length : 0;
+
+        const snapshotBanner = snapshotCount > 0
+            ? `<div class="snapshot-banner">📸 <strong>Snapshot-Modus</strong>: ${snapshotCount} Rezept${snapshotCount === 1 ? ' ist' : 'e sind'} eingefroren — spätere Änderungen am Original wirken sich auf diese Liste nicht aus. <button type="button" class="btn small" id="exit-snapshot">Snapshot verwerfen</button></div>`
+            : '';
 
         root.innerHTML = `
             <section>
                 <div class="no-print">
                     <h1>Einkaufsliste</h1>
+                    ${snapshotBanner}
 
                     <details class="saved-lists-section" ${savedLists.length ? 'open' : ''}>
                         <summary>Gespeicherte Listen (${savedLists.length})</summary>
@@ -238,6 +245,16 @@ export async function renderEinkaufsliste(root) {
             tr.querySelector('.load-list').addEventListener('click', () => loadSavedList(name));
             tr.querySelector('.del-list').addEventListener('click', () => deleteSavedList(name));
         });
+
+        const exitSnapshotBtn = root.querySelector('#exit-snapshot');
+        if (exitSnapshotBtn) {
+            exitSnapshotBtn.addEventListener('click', () => {
+                if (!confirm('Snapshot verwerfen? Die Liste nutzt danach wieder die aktuellen Rezeptdaten.')) return;
+                // Items behalten, nur Snapshot leeren
+                cart.replaceAll(cart.all(), {});
+                draw();
+            });
+        }
 
         if (!items.length) return;
 
@@ -298,7 +315,8 @@ export async function renderEinkaufsliste(root) {
         }
         try {
             const data = await api.getSavedList(name);
-            cart.replaceAll(data.items || []);
+            // Snapshot mitnehmen — gespeicherte Liste ist eingefroren
+            cart.replaceAll(data.items || [], data.snapshot || {});
             // Neue Liste = neuer Einkaufszyklus → Häkchen zurücksetzen
             try { await api.clearChecks(); } catch (err) { console.error('clearChecks failed:', err); }
             draw();
@@ -356,7 +374,7 @@ export async function renderEinkaufsliste(root) {
         ergebnis.innerHTML = `<p class="muted">Generiere…</p>`;
         try {
             const [data, checks] = await Promise.all([
-                api.einkaufsliste(items.map(r => ({ id: r.id, personen: r.personen }))),
+                api.einkaufsliste(items.map(r => ({ id: r.id, personen: r.personen })), cart.snapshot()),
                 api.getChecks(),
             ]);
             const liste = data.liste || [];

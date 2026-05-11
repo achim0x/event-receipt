@@ -141,8 +141,28 @@ export function renderRezeptHtml({ rezept, personen }) {
 
 export async function loadCartRecipes() {
     const cartItems = cart.all();
-    const fetched = await Promise.all(cartItems.map(c => api.getRezept(c.id)));
-    return fetched.map((rezept, i) => ({ rezept, personen: cartItems[i].personen }));
+    const snapshot = cart.snapshot();
+
+    return Promise.all(cartItems.map(async (c) => {
+        const snap = snapshot && snapshot[c.id];
+        if (snap && snap.daten) {
+            // Snapshot-Modus: gefrorenes Rezept verwenden statt live zu fetchen.
+            // Sicheres Fallback auf live wenn snapshot kein `daten` hat.
+            return {
+                rezept: {
+                    id: c.id,
+                    titel: snap.titel ?? c.titel,
+                    kategorie: snap.kategorie ?? '',
+                    quelle: snap.quelle ?? '',
+                    zubereitungszeit: snap.zubereitungszeit ?? '',
+                    daten: snap.daten,
+                },
+                personen: c.personen,
+            };
+        }
+        const rezept = await api.getRezept(c.id);
+        return { rezept, personen: c.personen };
+    }));
 }
 
 export function downloadRecipesAsText(recipes, filename = 'rezepte.txt') {

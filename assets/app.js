@@ -10,7 +10,7 @@ import { renderRezeptePrint } from './views/rezepte_print.js';
 // danach gelöscht.
 const LEGACY_STORAGE_KEY = 'rezepte.einkaufsliste.v1';
 
-let cartState = [];
+let cartState = { items: [], snapshot: {} };
 let cartInitialized = false;
 let saveTimer = null;
 const SAVE_DEBOUNCE_MS = 300;
@@ -18,9 +18,17 @@ const SAVE_DEBOUNCE_MS = 300;
 function updateBadge() {
     const badge = document.getElementById('cart-badge');
     if (!badge) return;
-    const count = cartState.length;
+    const count = cartState.items.length;
     badge.textContent = String(count);
     badge.hidden = count === 0;
+}
+
+function isPlainObject(v) {
+    return v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function normalizeSnapshot(s) {
+    return isPlainObject(s) ? s : {};
 }
 
 function readLegacyCart() {
@@ -40,10 +48,11 @@ function clearLegacyCart() {
 async function loadCartFromServer() {
     try {
         const data = await api.getCart();
-        cartState = Array.isArray(data.items) ? data.items : [];
+        cartState.items = Array.isArray(data.items) ? data.items : [];
+        cartState.snapshot = normalizeSnapshot(data.snapshot);
     } catch (err) {
         console.error('Cart laden fehlgeschlagen:', err);
-        cartState = [];
+        cartState = { items: [], snapshot: {} };
     }
     updateBadge();
 }
@@ -54,21 +63,24 @@ async function initCart() {
     try {
         const data = await api.getCart();
         const serverItems = Array.isArray(data.items) ? data.items : [];
+        const serverSnapshot = normalizeSnapshot(data.snapshot);
 
         if (serverItems.length === 0 && legacy && legacy.length > 0) {
-            // One-time-migration: legacy localStorage → Server
-            cartState = legacy;
+            // One-time-migration: legacy localStorage → Server (kein Snapshot)
+            cartState.items = legacy;
+            cartState.snapshot = {};
             try {
-                await api.putCart(cartState);
+                await api.putCart(cartState.items, {});
             } catch (err) {
                 console.error('Legacy-Cart-Migration zum Server fehlgeschlagen:', err);
             }
         } else {
-            cartState = serverItems;
+            cartState.items = serverItems;
+            cartState.snapshot = serverSnapshot;
         }
     } catch (err) {
         console.error('Cart-Init: Server-Fetch fehlgeschlagen, fallback auf legacy/leer:', err);
-        cartState = legacy || [];
+        cartState = { items: legacy || [], snapshot: {} };
     }
 
     clearLegacyCart();
@@ -81,7 +93,7 @@ function scheduleCartSave() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
         try {
-            await api.putCart(cartState);
+            await api.putCart(cartState.items, cartState.snapshot);
         } catch (err) {
             console.error('Cart-Sync zum Server fehlgeschlagen:', err);
         }
@@ -89,42 +101,52 @@ function scheduleCartSave() {
 }
 
 export const cart = {
-    all: () => cartState.slice(),
-    has: (id) => cartState.some(r => r.id === id),
+    all: () => cartState.items.slice(),
+    /** Snapshot-Map {rezept_id: {titel, kategorie, quelle, zubereitungszeit, daten}}.
+     *  Wenn nicht leer, ist die App im Snapshot-Modus für die enthaltenen IDs. */
+    snapshot: () => cartState.snapshot,
+    has: (id) => cartState.items.some(r => r.id === id),
     add(rezept, personen = 1) {
         if (cart.has(rezept.id)) return false;
-        cartState.push({
+        cartState.items.push({
             id: rezept.id,
             titel: rezept.titel,
             personen: Math.max(1, parseInt(personen, 10) || 1),
         });
+        // Snapshot wird NICHT verändert — neu hinzugefügte Rezepte nutzen live data.
         updateBadge();
         scheduleCartSave();
         return true;
     },
     remove(id) {
-        cartState = cartState.filter(r => r.id !== id);
+        cartState.items = cartState.items.filter(r => r.id !== id);
+        // Snapshot für entferntes Rezept droppen — bringt nichts mehr.
+        if (cartState.snapshot && Object.prototype.hasOwnProperty.call(cartState.snapshot, id)) {
+            delete cartState.snapshot[id];
+        }
         updateBadge();
         scheduleCartSave();
     },
     setPersonen(id, personen) {
-        const entry = cartState.find(r => r.id === id);
+        const entry = cartState.items.find(r => r.id === id);
         if (!entry) return;
         entry.personen = Math.max(1, parseInt(personen, 10) || 1);
         scheduleCartSave();
     },
     clear() {
-        cartState = [];
+        cartState.items = [];
+        cartState.snapshot = {};
         updateBadge();
         scheduleCartSave();
     },
-    /** Komplette Liste durch geladene Items ersetzen — z.B. beim Laden einer gespeicherten Liste */
-    replaceAll(items) {
-        cartState = (Array.isArray(items) ? items : []).map(r => ({
+    /** Komplette Liste durch geladene Items + optional Snapshot ersetzen — z.B. beim Laden einer gespeicherten Liste */
+    replaceAll(items, snapshot = {}) {
+        cartState.items = (Array.isArray(items) ? items : []).map(r => ({
             id: parseInt(r.id, 10),
             titel: String(r.titel || ''),
             personen: Math.max(1, parseInt(r.personen, 10) || 1),
         }));
+        cartState.snapshot = normalizeSnapshot(snapshot);
         updateBadge();
         scheduleCartSave();
     },

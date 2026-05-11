@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/bootstrap.php';
 
-const MAX_CART_BYTES = 100 * 1024;
+const MAX_CART_BYTES = 1024 * 1024;  // 1 MB — snapshot kann groß werden
 
 $method = $_SERVER['REQUEST_METHOD'];
 if ($method === 'POST') {
@@ -11,10 +11,6 @@ if ($method === 'POST') {
     if ($override === 'PUT') $method = 'PUT';
 }
 
-/**
- * Räumt Cart-Items auf: nur {id, titel, personen} mit sinnvollen Typen.
- * Items ohne ID werden verworfen. Personen min 1.
- */
 function sanitize_cart_items(mixed $items): array {
     if (!is_array($items)) return [];
     $out = [];
@@ -29,13 +25,24 @@ function sanitize_cart_items(mixed $items): array {
     return $out;
 }
 
+function encode_snapshot(mixed $snapshot): string {
+    // Snapshot ist Map<id, recipeData>. Leer → '{}', sonst JSON-encode.
+    // Wir codieren ohne JSON_FORCE_OBJECT, weil PHP für int-Keys das Object-
+    // Format selbst wählt (sobald Keys nicht 0..n sind).
+    if (!is_array($snapshot) || empty($snapshot)) return '{}';
+    $encoded = json_encode($snapshot, JSON_UNESCAPED_UNICODE);
+    return $encoded === false ? '{}' : $encoded;
+}
+
 if ($method === 'GET') {
-    $stmt = $db->prepare('SELECT items, updated_at FROM einkaufsliste_aktuell WHERE id = 1');
+    $stmt = $db->prepare('SELECT items, snapshot, updated_at FROM einkaufsliste_aktuell WHERE id = 1');
     $stmt->execute();
     $row = $stmt->fetch();
     $items = $row ? json_decode($row['items'], true) : [];
+    $snapshot = $row ? json_decode($row['snapshot'] ?? '{}', true) : [];
     json_response([
         'items' => is_array($items) ? $items : [],
+        'snapshot' => is_array($snapshot) ? $snapshot : new stdClass,
         'updated_at' => $row['updated_at'] ?? null,
     ]);
 }
@@ -43,7 +50,7 @@ if ($method === 'GET') {
 if ($method === 'PUT') {
     $raw = file_get_contents('php://input') ?: '';
     if (strlen($raw) > MAX_CART_BYTES) {
-        json_error('Cart zu groß (max. 100 KB)', 413);
+        json_error('Cart zu groß (max. 1 MB)', 413);
     }
     try {
         $body = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
@@ -54,17 +61,25 @@ if ($method === 'PUT') {
         json_error('Feld "items" erforderlich', 400);
     }
     $clean = sanitize_cart_items($body['items']);
+    $snapshot = $body['snapshot'] ?? [];
 
     $stmt = $db->prepare('
-        INSERT INTO einkaufsliste_aktuell (id, items, updated_at)
-        VALUES (1, :items, CURRENT_TIMESTAMP)
+        INSERT INTO einkaufsliste_aktuell (id, items, snapshot, updated_at)
+        VALUES (1, :items, :snapshot, CURRENT_TIMESTAMP)
         ON CONFLICT(id) DO UPDATE SET
             items = excluded.items,
+            snapshot = excluded.snapshot,
             updated_at = CURRENT_TIMESTAMP
     ');
-    $stmt->execute([':items' => json_encode($clean, JSON_UNESCAPED_UNICODE)]);
+    $stmt->execute([
+        ':items' => json_encode($clean, JSON_UNESCAPED_UNICODE),
+        ':snapshot' => encode_snapshot($snapshot),
+    ]);
 
-    json_response(['items' => $clean]);
+    json_response([
+        'items' => $clean,
+        'snapshot' => is_array($snapshot) ? $snapshot : new stdClass,
+    ]);
 }
 
 json_error('Method not allowed', 405);
