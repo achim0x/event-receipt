@@ -994,6 +994,31 @@ Wer die App im Internet (statt LAN) betreibt:
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
 
+### 2026-05-12 — PWA-Phase 2 Fix: offline Zutaten/Gewürze/Equipment
+
+Bug-Report von Live-Test: Offline klappt „Komplette Rezepte", aber bei
+„Zutaten" / „Gewürze" / „Küchenausstattung" kam „Fehler: offline".
+
+Ursache: die drei Aggregations-Handler haben `loadRecipes()` und
+`api.getChecks()` parallel via `Promise.all` geholt. Wenn der User die
+Einkaufsliste vorher noch nie online besucht hatte, war
+`/api/checks.php` nicht im SW-Cache → der SW lieferte den 503-Offline-
+Fallback → `Promise.all` rejected → ganze View kippt obwohl die Rezept-
+Daten aus dem Snapshot vorhanden wären.
+
+Fix: kleiner Helper `safeGetChecks()` in `views/einkaufsliste.js` —
+wenn der API-Call fehlschlägt (offline oder echter Server-Fehler),
+gibt er `{zutaten:[],gewuerze:[],equipment:[]}` zurück und loggt eine
+warning, statt das Render zu blockieren. Alle drei Generate-Funktionen
+nutzen den Wrapper.
+
+Side-effect: offline gesetzte Häkchen werden weiterhin im DOM
+gehalten aber nicht persistiert — der `wireCheckboxes`-Toggle ruft
+`api.setCheck()`, das offline failed. Das wird sauber von Phase 4
+(IndexedDB-Queue + Background-Sync) gelöst. Bis dahin: console.error,
+DOM-State bleibt, beim nächsten Online-Reload sieht der User den
+Server-Stand.
+
 ### 2026-05-11 — PWA-Phase 2: Manifest + Service Worker
 
 Die App ist ab jetzt eine installierbare Progressive Web App.

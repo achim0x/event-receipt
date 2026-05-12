@@ -102,6 +102,19 @@ export async function renderEinkaufsliste(root) {
     await cart.refresh();
     await refreshSavedLists();
 
+    // Offline-tolerantes Holen der abgehakt-Marker: wenn der Endpunkt
+    // nicht im Service-Worker-Cache ist und gerade kein Netz da → still
+    // mit leerem Set zurück, damit die Aggregations-View weiter funktioniert.
+    // Echte Server-Fehler werden geloggt aber nicht eskaliert.
+    async function safeGetChecks() {
+        try {
+            return await api.getChecks();
+        } catch (err) {
+            console.warn('Checks nicht ladbar (vermutlich offline):', err);
+            return { zutaten: [], gewuerze: [], equipment: [] };
+        }
+    }
+
     async function refreshSavedLists() {
         try {
             const data = await api.listSavedLists();
@@ -345,7 +358,7 @@ export async function renderEinkaufsliste(root) {
             // loadCartRecipes() (im Browser cache-fähig für Offline-Modus).
             const [recipes, checks] = await Promise.all([
                 loadRecipes(),
-                api.getChecks(),
+                safeGetChecks(),
             ]);
             const { liste } = aggregateIngredients(recipes);
             const checkedSet = new Set(checks.zutaten || []);
@@ -397,7 +410,7 @@ export async function renderEinkaufsliste(root) {
         const ergebnis = root.querySelector('#ergebnis');
         ergebnis.innerHTML = `<p class="muted">Lade Rezepte…</p>`;
         try {
-            const [recipes, checks] = await Promise.all([loadRecipes(), api.getChecks()]);
+            const [recipes, checks] = await Promise.all([loadRecipes(), safeGetChecks()]);
             const spices = aggregateSpices(recipes);
             const checkedSet = new Set(checks.gewuerze || []);
 
@@ -437,7 +450,7 @@ export async function renderEinkaufsliste(root) {
         const ergebnis = root.querySelector('#ergebnis');
         ergebnis.innerHTML = `<p class="muted">Lade Rezepte…</p>`;
         try {
-            const [recipes, checks] = await Promise.all([loadRecipes(), api.getChecks()]);
+            const [recipes, checks] = await Promise.all([loadRecipes(), safeGetChecks()]);
             const equipment = aggregateEquipment(recipes);
             const checkedSet = new Set(checks.equipment || []);
 
