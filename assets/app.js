@@ -205,7 +205,21 @@ document.addEventListener('click', (e) => {
 
 window.addEventListener('popstate', render);
 
+// --- Network-Status -------------------------------------------------------
+// Setzt body.is-offline auf Basis von navigator.onLine und reagiert auf
+// online/offline-Events. CSS in style.css blendet einen Banner ein und
+// dämpft Elemente mit .needs-network-Klasse.
+function updateOfflineClass() {
+    document.body.classList.toggle('is-offline', !navigator.onLine);
+}
+updateOfflineClass();
+window.addEventListener('online', updateOfflineClass);
+window.addEventListener('offline', updateOfflineClass);
+
 export { navigate };
+export const network = {
+    isOnline: () => navigator.onLine,
+};
 
 // Bevor wir rendern, einmal den Server-State holen — sonst zeigt z.B. die
 // Detail-View "+/✓ Im Cart" falsch.

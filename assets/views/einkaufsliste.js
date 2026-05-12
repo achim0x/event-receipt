@@ -152,8 +152,8 @@ export async function renderEinkaufsliste(root) {
                             <td>${l.count} Rezept${l.count === 1 ? '' : 'e'}</td>
                             <td class="muted small">${escapeHtml(l.gespeichert_am)}</td>
                             <td>
-                                <button type="button" class="btn small load-list">📂 Laden</button>
-                                <button type="button" class="btn small danger del-list">🗑</button>
+                                <button type="button" class="btn small load-list needs-network">📂 Laden</button>
+                                <button type="button" class="btn small danger del-list needs-network">🗑</button>
                             </td>
                         </tr>
                     `).join('')}
@@ -203,7 +203,7 @@ export async function renderEinkaufsliste(root) {
                             <label class="save-as-label">Aktuelle Auswahl speichern als:
                                 <input type="text" id="save-name" maxlength="80" placeholder="z.B. Wochenplan KW18">
                             </label>
-                            <button type="button" class="btn" id="save-as">💾 Speichern</button>
+                            <button type="button" class="btn needs-network" id="save-as">💾 Speichern</button>
                         </div>
                         <div class="row-buttons">
                             <button type="button" class="btn primary" id="show-zutaten">Zutaten</button>
@@ -392,7 +392,7 @@ export async function renderEinkaufsliste(root) {
                     <div class="row-buttons">
                         <button type="button" class="btn" data-action="copy">📋 Als Text kopieren</button>
                         <button type="button" class="btn" data-action="download">💾 Als .txt herunterladen</button>
-                        <button type="button" class="btn" data-action="reset-checks">↺ Häkchen zurücksetzen</button>
+                        <button type="button" class="btn needs-network" data-action="reset-checks">↺ Häkchen zurücksetzen</button>
                     </div>
                 </div>
             `;
@@ -432,7 +432,7 @@ export async function renderEinkaufsliste(root) {
                     <div class="row-buttons">
                         <button type="button" class="btn" data-action="copy">📋 Kopieren</button>
                         <button type="button" class="btn" data-action="download">💾 Als .txt herunterladen</button>
-                        <button type="button" class="btn" data-action="reset-checks">↺ Häkchen zurücksetzen</button>
+                        <button type="button" class="btn needs-network" data-action="reset-checks">↺ Häkchen zurücksetzen</button>
                     </div>
                 </div>
             `;
@@ -477,7 +477,7 @@ export async function renderEinkaufsliste(root) {
                     <div class="row-buttons">
                         <button type="button" class="btn" data-action="copy">📋 Kopieren</button>
                         <button type="button" class="btn" data-action="download">💾 Als .txt herunterladen</button>
-                        <button type="button" class="btn" data-action="reset-checks">↺ Häkchen zurücksetzen</button>
+                        <button type="button" class="btn needs-network" data-action="reset-checks">↺ Häkchen zurücksetzen</button>
                     </div>
                 </div>
             `;

@@ -51,8 +51,8 @@ export function renderUpload(root) {
                     <p class="muted">Akzeptiert das vom Export erzeugte Format <code>{recipes: [...]}</code> oder ein nacktes Array von Rezepten. Bestehende Rezepte werden nicht überschrieben — die importierten kommen als neue Einträge dazu. Pro Rezept wird validiert; defekte Einträge werden mit Begründung gemeldet und übersprungen, der Rest landet trotzdem.</p>
                     <div class="bulk-import-row">
                         <input type="file" id="bulk-file" accept="application/json,.json">
-                        <button type="button" class="btn" id="bulk-dryrun">🔍 Prüfen (dry-run)</button>
-                        <button type="button" class="btn primary" id="bulk-import">📥 Importieren</button>
+                        <button type="button" class="btn needs-network" id="bulk-dryrun">🔍 Prüfen (dry-run)</button>
+                        <button type="button" class="btn primary needs-network" id="bulk-import">📥 Importieren</button>
                     </div>
                     <div id="bulk-status"></div>
                 </div>
@@ -168,7 +168,7 @@ export function renderUpload(root) {
                 </details>
 
                 <div class="row-buttons">
-                    <button type="button" class="btn primary" id="save-btn">Speichern</button>
+                    <button type="button" class="btn primary needs-network" id="save-btn">Speichern</button>
                     <button type="button" class="btn" id="cancel-btn">Abbrechen</button>
                 </div>
             </div>

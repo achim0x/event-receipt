@@ -26,6 +26,10 @@ $base = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\') . '/';
     <link rel="icon" type="image/svg+xml" href="assets/icons/icon.svg">
 </head>
 <body>
+    <div class="offline-banner no-print" role="status" aria-live="polite">
+        📶 Offline — Anzeigen geht, Änderungen am Server bis zur nächsten Verbindung deaktiviert
+    </div>
+
     <header class="app-header">
         <div class="container">
             <a href="." data-link class="brand">🍳 Rezepte</a>

@@ -994,6 +994,15 @@ Wer die App im Internet (statt LAN) betreibt:
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
 
+### 2026-05-12 — PWA-Phase 3: Offline-UI
+
+- Neuer Offline-Banner im `index.php`-Header (`<div class="offline-banner">`), per CSS standardmäßig hidden, sichtbar wenn `<body>` die Klasse `is-offline` hat.
+- `assets/app.js` setzt `body.is-offline` aus `navigator.onLine` und reagiert auf die `online`/`offline`-Events. Plus neuer Export `network.isOnline()` falls Views ihn brauchen.
+- CSS-Regel `body.is-offline .needs-network { opacity:0.45; pointer-events:none; cursor:not-allowed; filter:grayscale(0.4); }` — alle Actions die offline echt nichts können sind mit `needs-network` markiert und werden im Offline-Modus sichtbar gedämpft + klickresistent.
+- Markiert mit `needs-network`: Upload-Save, Bulk-Dry-Run, Bulk-Import, Detail-Bearbeiten, Detail-Löschen, Edit-Speichern, Einkaufsliste-„Speichern als", Saved-Lists-Laden, Saved-Lists-Löschen, „Häkchen zurücksetzen".
+- **Nicht** markiert (Local-first, Phase 4 macht sie persistent): Cart-Items-Entfernen, Cart-„Alle entfernen", Personenzahl ändern, Häkchen-Toggle. Diese Aktionen ändern lokalen State, der debounced-PUT-Cart-Sync failed offline silent — beim nächsten Online-Wechsel wird automatisch gesynct (vorhandene `scheduleCartSave`-Logik).
+- Banner-Text: „Offline — Anzeigen geht, Änderungen am Server bis zur nächsten Verbindung deaktiviert". Mit role=status + aria-live=polite für Screen-Reader.
+
 ### 2026-05-12 — PWA-Phase 2 Fix: offline Zutaten/Gewürze/Equipment
 
 Bug-Report von Live-Test: Offline klappt „Komplette Rezepte", aber bei
