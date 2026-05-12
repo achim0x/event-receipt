@@ -152,3 +152,106 @@ $db->exec("
         PRIMARY KEY (kategorie, schluessel)
     );
 ");
+
+// --- Auth-Infrastructure ---------------------------------------------------
+// Geräte-Tabelle für QR-basierte Authentifizierung. Wird in Phase 5 angelegt,
+// wirklich genutzt aber erst wenn REQUIRE_AUTH_TOKEN auf true gesetzt wird
+// (siehe unten) und Phase 6 das Setup/Pairing-UI bringt.
+$db->exec("
+    CREATE TABLE IF NOT EXISTS geraete (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token_hash TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        typ TEXT NOT NULL DEFAULT 'mobile',
+        erstellt_am DATETIME DEFAULT CURRENT_TIMESTAMP,
+        zuletzt_gesehen DATETIME,
+        aktiv INTEGER NOT NULL DEFAULT 1
+    );
+");
+
+// --- Auth-Helpers ----------------------------------------------------------
+function hash_token(string $token): string {
+    // Token sind hochentropische 32-Byte-Zufallswerte → SHA-256 ist genug.
+    // Wir speichern nur den Hash, der Klartext-Token landet nie in der DB.
+    return hash('sha256', $token);
+}
+
+/**
+ * Liefert das aktuelle Gerät (id, name, typ) oder null wenn kein gültiger
+ * Token präsentiert wurde. Akzeptiert sowohl `Authorization: Bearer <token>`
+ * (Mobile-PWA) als auch ein HttpOnly-Cookie `rezepte_session` (Web-UI).
+ * Aktualisiert `zuletzt_gesehen` best-effort.
+ */
+function current_geraet(): ?array {
+    global $db;
+    $token = null;
+
+    // Authorization-Header kann unter mod_php aus $_SERVER fehlen — Apache
+    // strippt ihn vor PHP. Fallback-Reihenfolge: $_SERVER (PHP-FPM oder mit
+    // RewriteRule durchgeschleift) → REDIRECT_HTTP_AUTHORIZATION (Rewrite-
+    // Sideeffect) → apache_request_headers() (nur mit mod_php verfügbar).
+    $auth = $_SERVER['HTTP_AUTHORIZATION']
+        ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
+        ?? '';
+    if ($auth === '' && function_exists('apache_request_headers')) {
+        $h = apache_request_headers();
+        // Header-Lookup case-insensitive
+        foreach ($h as $k => $v) {
+            if (strcasecmp($k, 'Authorization') === 0) {
+                $auth = $v;
+                break;
+            }
+        }
+    }
+    if ($auth !== '' && preg_match('/^Bearer\s+([a-f0-9]{64})$/i', $auth, $m)) {
+        $token = strtolower($m[1]);
+    }
+    if ($token === null && !empty($_COOKIE['rezepte_session'])) {
+        $cookie = (string) $_COOKIE['rezepte_session'];
+        if (preg_match('/^[a-f0-9]{64}$/i', $cookie)) {
+            $token = strtolower($cookie);
+        }
+    }
+    if ($token === null) return null;
+
+    try {
+        $stmt = $db->prepare('SELECT id, name, typ, aktiv FROM geraete WHERE token_hash = :h LIMIT 1');
+        $stmt->execute([':h' => hash_token($token)]);
+        $row = $stmt->fetch();
+        if (!$row || (int) $row['aktiv'] !== 1) return null;
+
+        // Best-effort: zuletzt_gesehen aktualisieren. Bei Fehler nicht eskalieren.
+        try {
+            $up = $db->prepare('UPDATE geraete SET zuletzt_gesehen = CURRENT_TIMESTAMP WHERE id = :id');
+            $up->execute([':id' => $row['id']]);
+        } catch (Throwable $e) {
+            error_log('[rezepte-app] zuletzt_gesehen update failed: ' . $e->getMessage());
+        }
+        return $row;
+    } catch (Throwable $e) {
+        error_log('[rezepte-app] current_geraet lookup failed: ' . $e->getMessage());
+        return null;
+    }
+}
+
+/**
+ * Blockt den Request mit 401 wenn REQUIRE_AUTH_TOKEN aktiv ist und kein
+ * gültiges Gerät authentifiziert ist. Setup- und Pairing-Endpoints können
+ * sich vor dem `require bootstrap.php` mit `define('SKIP_AUTH', true);`
+ * vom Check ausnehmen.
+ */
+function ensure_authenticated(): void {
+    if (!REQUIRE_AUTH_TOKEN) return;
+    if (defined('SKIP_AUTH') && SKIP_AUTH) return;
+    if (current_geraet() !== null) return;
+    http_response_code(401);
+    echo json_encode(['error' => 'Authentication required'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// Auth-Pflicht ist opt-in. Default: aus, damit das aktuelle LAN-/Single-
+// Household-Modell weiter funktioniert. Wer die App ins Internet stellt,
+// aktiviert das nach Phase 6 (Setup-UI) auf true.
+const REQUIRE_AUTH_TOKEN = false;
+
+ensure_authenticated();

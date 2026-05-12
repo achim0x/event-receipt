@@ -1,5 +1,12 @@
 RewriteEngine On
 
+# Authorization-Header an PHP durchschleifen. mod_php sieht ihn standardmäßig
+# nicht in $_SERVER (Apache strippt ihn). Diese Rule legt ihn als CGI-Env-Variable
+# bereit, sodass current_geraet() ihn aus $_SERVER['HTTP_AUTHORIZATION'] (oder
+# REDIRECT_HTTP_AUTHORIZATION) lesen kann — auch mit PHP-FPM.
+RewriteCond %{HTTP:Authorization} ^(.+)
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%1]
+
 # --- Block direkten Zugriff auf sensitive Pfade/Dateien ----------------------
 # Verhindert dass die SQLite-DB, JSON-Konfigs oder versteckte Files
 # direkt über HTTP abgerufen werden können. data/ braucht für Apache

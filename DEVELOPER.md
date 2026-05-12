@@ -994,6 +994,34 @@ Wer die App im Internet (statt LAN) betreibt:
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
 
+### 2026-05-12 — PWA-Phase 5: Backend Auth-Infrastructure
+
+Vorarbeit für QR-Pairing in Phase 6. Das Backend lernt Geräte und
+Bearer-Tokens — aber der Auth-Check ist per Default deaktiviert,
+damit das LAN-/Single-Household-Modell ungestört weiterläuft.
+
+- Neue Tabelle `geraete (id, token_hash UNIQUE, name, typ, erstellt_am, zuletzt_gesehen, aktiv)` in `bootstrap.php`.
+- Tokens sind 32 Bytes zufällig = 64-Hex-Chars. Server speichert nur den SHA-256-Hash — der Klartext-Token landet nie in der DB.
+- `current_geraet()` liest entweder `Authorization: Bearer <token>` (Mobile) oder Cookie `rezepte_session` (Web). Aktualisiert `zuletzt_gesehen` best-effort.
+- `ensure_authenticated()` blockt mit 401 wenn `REQUIRE_AUTH_TOKEN` an ist und kein gültiges Gerät authentifiziert ist. Endpoints können sich mit `define('SKIP_AUTH', true)` vor dem `require bootstrap.php` ausnehmen (Phase 6: Setup/Pairing).
+- **Konstante `REQUIRE_AUTH_TOKEN = false`** als opt-in-Schalter. Erst nach Phase 6 (Setup-UI) sicher aktivierbar.
+- `.htaccess`: neue RewriteRule schleift den `Authorization`-Header als `HTTP_AUTHORIZATION`-Env-Variable durch — Apache mod_php strippt ihn sonst aus `$_SERVER`. Plus Code-Fallback auf `apache_request_headers()`.
+
+**Wichtige Warnung**: `REQUIRE_AUTH_TOKEN = true` ohne Phase 6 macht
+die App unbrauchbar, weil kein Pairing-Endpoint existiert um den
+ersten Token zu erzeugen. Default-`false` lassen bis Phase 6 fertig ist.
+
+Smoke-Tests aller Pfade (via temporärem Seed-Endpoint, weil PHP-CLI
+keine Write-Permission auf die DB hat):
+- Kein Token + Auth an → 401 ✓
+- Gültiger Bearer-Token → 200, `zuletzt_gesehen` aktualisiert ✓
+- Cookie `rezepte_session` → 200 ✓
+- Unbekannter Token (richtiges Format) → 401 ✓
+- Falsches Format (zu kurz, kein Hex) → 401 ✓
+- Revozierter Token (`aktiv=0`) → 401 ✓
+- POST-Endpoints (cart.php etc.) → ebenfalls 401 ohne gültigen Token ✓
+- Auth aus → alle Endpoints offen wie zuvor ✓
+
 ### 2026-05-12 — PWA-Phase 4: Offline-Häkchen mit Sync
 
 Häkchen-Mutationen funktionieren jetzt offline und werden beim
