@@ -994,6 +994,41 @@ Wer die App im Internet (statt LAN) betreibt:
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
 
+### 2026-05-12 — Offline-Aggregation tolerant gegen fehlende Cached-Rezepte
+
+Live-Bericht: nach dem Cache-Reset funktionierten Zutaten / Gewürze /
+Equipment / Komplette Rezepte offline wieder nicht — „Fehler: offline".
+
+Ursache (anders als beim vorherigen safeGetChecks-Fix): `loadCartRecipes()`
+in `views/rezepte_print.js` benutzte `Promise.all` über `getRezept(id)`-
+Aufrufe. Wenn ein einzelnes Rezept noch nicht im Service-Worker-Cache lag
+(weil der User es seit Cache-v2-Install noch nicht im Detail geöffnet
+hatte), gab der SW dafür den 503-Offline-Fallback raus. `Promise.all`
+reject → ganze loadRecipes-Promise reject → die vier Aggregations-Views
+sahen nur den „offline"-Error.
+
+Fix: `Promise.allSettled` statt `Promise.all` in `loadCartRecipes()` —
+die geladenen Rezepte gehen durch, fehlende werden rausgefiltert.
+Caller sehen ein kleineres Array und können den Unterschied gegen
+`cart.all().length` als „X von Y nicht offline verfügbar" anzeigen.
+
+Neuer Helper `offlineCoverageWarning(recipes)` in `views/einkaufsliste.js`:
+liefert leeren String bei voller Coverage, ein `<p class="error">` bei
+0 geladenen Rezepten („einmal mit Internet öffnen damit der Cache füllt"),
+oder ein `<div class="warning-box">` mit der Differenz bei partieller
+Coverage. Wird in allen vier Aggregations-Views (Zutaten, Gewürze,
+Küchenausstattung, Komplette Rezepte) ins Result-Template injiziert.
+
+`CACHE_VERSION` auf `'v3'` gebumpt — Phase-3 v2-Caches halten sonst die
+alte loadCartRecipes-Variante fest (Cache-First-Strategie für statische
+Assets). Jeder PWA-Bestandsnutzer kriegt beim nächsten App-Start den
+neuen JS-Bundle.
+
+**Hinweis für die Doku**: Jedes Update am `assets/*`-Code muss
+`CACHE_VERSION` hochziehen, sonst hängen Bestandsnutzer auf der alten
+Version. In Phase 4 (geplant) automatisieren wir das per Build-Step
+oder Cache-Invalidation-Header.
+
 ### 2026-05-12 — SW-Bug-Fix: App-Shell zeigte auf sich selbst
 
 Drei zusammenhängende Live-Bugs, alle mit derselben Ursache:

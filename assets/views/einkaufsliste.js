@@ -102,6 +102,20 @@ export async function renderEinkaufsliste(root) {
     await cart.refresh();
     await refreshSavedLists();
 
+    // Hinweis für den User wenn nicht alle Cart-Rezepte geladen werden
+    // konnten (typisch: offline, Rezept noch nicht im Service-Worker-Cache).
+    // Leerer String wenn vollständig — caller injiziert das direkt ins Template.
+    function offlineCoverageWarning(recipes) {
+        const total = cart.all().length;
+        const have = recipes.length;
+        if (have === total) return '';
+        if (have === 0) {
+            return `<p class="error">Rezepte sind offline nicht verfügbar. Bitte einmal mit Internet-Verbindung öffnen, damit sie für den Offline-Modus zwischengespeichert werden können.</p>`;
+        }
+        const missing = total - have;
+        return `<div class="warning-box">⚠ ${missing} von ${total} Rezepten offline nicht verfügbar — die Liste ist unvollständig. Mindestens einmal mit Internet-Verbindung öffnen, dann sind sie auch offline da.</div>`;
+    }
+
     // Offline-tolerantes Holen der abgehakt-Marker: wenn der Endpunkt
     // nicht im Service-Worker-Cache ist und gerade kein Netz da → still
     // mit leerem Set zurück, damit die Aggregations-View weiter funktioniert.
@@ -322,8 +336,10 @@ export async function renderEinkaufsliste(root) {
         ergebnis.innerHTML = `<p class="muted">Lade Rezepte…</p>`;
         try {
             const recipes = await loadRecipes();
+            const warning = offlineCoverageWarning(recipes);
             if (!recipes.length) {
-                ergebnis.innerHTML = `<p class="muted">Keine Rezepte ausgewählt.</p>`;
+                ergebnis.innerHTML = warning ||
+                    `<p class="muted">Keine Rezepte ausgewählt.</p>`;
                 return;
             }
 
@@ -331,6 +347,7 @@ export async function renderEinkaufsliste(root) {
                 <div class="ergebnis print-section">
                     <div class="no-print">
                         <h2>Komplette Rezepte (${recipes.length})</h2>
+                        ${warning}
                         <div class="row-buttons">
                             <button type="button" class="btn primary" data-action="print">🖨 Drucken / als PDF speichern</button>
                             <button type="button" class="btn" data-action="text">💾 Als .txt herunterladen</button>
@@ -362,9 +379,10 @@ export async function renderEinkaufsliste(root) {
             ]);
             const { liste } = aggregateIngredients(recipes);
             const checkedSet = new Set(checks.zutaten || []);
+            const warning = offlineCoverageWarning(recipes);
 
             if (!liste.length) {
-                ergebnis.innerHTML = `<p class="muted">Keine Zutaten gefunden.</p>`;
+                ergebnis.innerHTML = warning || `<p class="muted">Keine Zutaten gefunden.</p>`;
                 return;
             }
 
@@ -372,6 +390,7 @@ export async function renderEinkaufsliste(root) {
             ergebnis.innerHTML = `
                 <div class="ergebnis">
                     <h2>Zutaten (skaliert &amp; aggregiert)</h2>
+                    ${warning}
                     ${liste.map(grp => `
                         ${grp.group ? `<h3>${escapeHtml(grp.group)}</h3>` : ''}
                         <ul>
@@ -413,9 +432,10 @@ export async function renderEinkaufsliste(root) {
             const [recipes, checks] = await Promise.all([loadRecipes(), safeGetChecks()]);
             const spices = aggregateSpices(recipes);
             const checkedSet = new Set(checks.gewuerze || []);
+            const warning = offlineCoverageWarning(recipes);
 
             if (!spices.length) {
-                ergebnis.innerHTML = `<p class="muted">Keine Gewürze in den ausgewählten Rezepten.</p>`;
+                ergebnis.innerHTML = warning || `<p class="muted">Keine Gewürze in den ausgewählten Rezepten.</p>`;
                 return;
             }
 
@@ -423,6 +443,7 @@ export async function renderEinkaufsliste(root) {
             ergebnis.innerHTML = `
                 <div class="ergebnis">
                     <h2>Gewürze (${spices.length} verschiedene)</h2>
+                    ${warning}
                     <ul>
                         ${spices.map(s => {
                             const key = checkKey(s);
@@ -453,9 +474,10 @@ export async function renderEinkaufsliste(root) {
             const [recipes, checks] = await Promise.all([loadRecipes(), safeGetChecks()]);
             const equipment = aggregateEquipment(recipes);
             const checkedSet = new Set(checks.equipment || []);
+            const warning = offlineCoverageWarning(recipes);
 
             if (!equipment.length) {
-                ergebnis.innerHTML = `<p class="muted">Keine Küchenausstattung in den ausgewählten Rezepten angegeben.</p>`;
+                ergebnis.innerHTML = warning || `<p class="muted">Keine Küchenausstattung in den ausgewählten Rezepten angegeben.</p>`;
                 return;
             }
 
@@ -463,6 +485,7 @@ export async function renderEinkaufsliste(root) {
             ergebnis.innerHTML = `
                 <div class="ergebnis">
                     <h2>Küchenausstattung (${equipment.length} Posten)</h2>
+                    ${warning}
                     <p class="muted">Pro Posten der größte Bedarf aus den ausgewählten Rezepten — wird nicht aufsummiert, da Geräte typischerweise wiederverwendet werden.</p>
                     <ul>
                         ${equipment.map(e => {

@@ -139,15 +139,21 @@ export function renderRezeptHtml({ rezept, personen }) {
     `;
 }
 
+/**
+ * Lädt für jedes Cart-Item das vollständige Rezept — primär aus dem
+ * Snapshot (lokal), Fallback auf `getRezept(id)`. Per `allSettled`
+ * tolerant gegenüber einzelnen Fehlern (offline und nicht im Cache),
+ * damit die Aggregations-Views nicht komplett kippen wenn ein Rezept
+ * fehlt. Caller können die Differenz `cart.all().length - result.length`
+ * nutzen um partial-coverage anzuzeigen.
+ */
 export async function loadCartRecipes() {
     const cartItems = cart.all();
     const snapshot = cart.snapshot();
 
-    return Promise.all(cartItems.map(async (c) => {
+    const results = await Promise.allSettled(cartItems.map(async (c) => {
         const snap = snapshot && snapshot[c.id];
         if (snap && snap.daten) {
-            // Snapshot-Modus: gefrorenes Rezept verwenden statt live zu fetchen.
-            // Sicheres Fallback auf live wenn snapshot kein `daten` hat.
             return {
                 rezept: {
                     id: c.id,
@@ -163,6 +169,10 @@ export async function loadCartRecipes() {
         const rezept = await api.getRezept(c.id);
         return { rezept, personen: c.personen };
     }));
+
+    return results
+        .filter(r => r.status === 'fulfilled')
+        .map(r => r.value);
 }
 
 export function downloadRecipesAsText(recipes, filename = 'rezepte.txt') {
