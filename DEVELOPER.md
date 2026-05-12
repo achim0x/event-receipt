@@ -994,6 +994,51 @@ Wer die App im Internet (statt LAN) betreibt:
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
 
+### 2026-05-12 — PWA-Phase 4: Offline-Häkchen mit Sync
+
+Häkchen-Mutationen funktionieren jetzt offline und werden beim
+nächsten Online-Wechsel automatisch zum Server synchronisiert.
+
+**Neue Datei `assets/checks_queue.js`** — dünner IndexedDB-Wrapper
+(DB `rezepte-pwa`, Store `pending_checks`). API:
+- `enqueue(kategorie, schluessel, checked)` — speichert eine Mutation
+- `applyPendingToChecks(serverChecks)` — mergt Server-Antwort mit
+  pending Einträgen, letzter-pro-key gewinnt
+- `flush(api)` — dedupliziert pro Key auf den jüngsten Eintrag,
+  postet ihn, löscht bei Erfolg alle Einträge dieses Keys; bei Fehler
+  bleibt's für den nächsten Versuch
+- `clearAll()` — Queue leeren (für „Häkchen zurücksetzen", Cart-Clear
+  und Liste-Laden, damit pending Einträge den Reset nicht überschreiben)
+
+**Integration in `views/einkaufsliste.js`**:
+- `wireCheckboxes` → enqueue zuerst, dann (wenn online) sofort flush.
+  Pattern ist einheitlich online/offline — keine Verzweigung.
+- `safeGetChecks` wendet `applyPendingToChecks` an, damit lokale
+  pending Häkchen sofort im DOM-Render erscheinen.
+- `resetChecksFor`, Cart-Clear und Liste-Laden rufen
+  `checksQueue.clearAll()` zusätzlich zum Server-DELETE.
+
+**Sync-Trigger in `app.js`**:
+- Beim `online`-Event: `checksQueue.flush(api)`
+- Beim `visibilitychange` mit `visible`: dito (für iOS, wo
+  Background-Sync-API fehlt)
+- Beim App-Start: einmal probieren (falls noch was hängt vom letzten
+  offline-Block)
+
+**Last-Write-Wins**: passt zum existierenden „shared everything"-
+Modell. Konflikt zwischen zwei Geräten die offline am gleichen Item
+zusammenklicken → wer zuletzt online geht überschreibt — akzeptabel
+für Familien-Use-Case.
+
+**`CACHE_VERSION` auf `v4`**, `checks_queue.js` in PRECACHE_PATHS
+hinzugefügt damit der SW das Modul vorab cached.
+
+Unit-getestete Merge-Szenarien (`applyPendingToChecks`):
+- Offline-only: pending wird sichtbar im result
+- Pending überschreibt Server-Stand (uncheck-Override)
+- Latest-wins bei mehrfachem Toggle pro Key
+- Additive Erweiterung des Server-Sets
+
 ### 2026-05-12 — Offline-Aggregation tolerant gegen fehlende Cached-Rezepte
 
 Live-Bericht: nach dem Cache-Reset funktionierten Zutaten / Gewürze /

@@ -1,5 +1,6 @@
 import { APP_BASE } from './config.js';
 import { api } from './api.js';
+import * as checksQueue from './checks_queue.js';
 import { renderRezeptListe, renderRezeptDetail, renderRezeptEdit } from './views/rezepte.js';
 import { renderUpload } from './views/upload.js';
 import { renderEinkaufsliste } from './views/einkaufsliste.js';
@@ -215,6 +216,22 @@ function updateOfflineClass() {
 updateOfflineClass();
 window.addEventListener('online', updateOfflineClass);
 window.addEventListener('offline', updateOfflineClass);
+
+// --- Pending-Häkchen synchronisieren --------------------------------------
+// Wenn das Gerät online wird oder der Tab wieder sichtbar wird, versuchen
+// wir die in IndexedDB gequeueten Check-Mutations zum Server zu pushen.
+// Last-Write-Wins per Schlüssel; permanente Fehler bleiben in der Queue
+// und werden beim nächsten Anlauf wieder probiert.
+function tryFlushChecks() {
+    if (!navigator.onLine) return;
+    checksQueue.flush(api).catch(err => console.warn('Pending-Sync fehlgeschlagen:', err));
+}
+window.addEventListener('online', tryFlushChecks);
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') tryFlushChecks();
+});
+// Beim App-Start einmal probieren (Initial-Sync falls noch was anhängt)
+tryFlushChecks();
 
 export { navigate };
 export const network = {

@@ -3,6 +3,7 @@ import { cart } from '../app.js';
 import { displayUnit } from '../units.js';
 import { renderRezeptHtml, downloadRecipesAsText, loadCartRecipes } from './rezepte_print.js';
 import { aggregateIngredients, aggregateSpices, aggregateEquipment } from '../aggregate.js';
+import * as checksQueue from '../checks_queue.js';
 
 function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, (c) => ({
@@ -83,10 +84,17 @@ function wireCheckboxes(container, checkedSet) {
         if (checkedSet.has(schluessel)) cb.checked = true;
 
         cb.addEventListener('change', async () => {
+            // Erst in die IDB-Queue (persistent über Reloads, überlebt Offline).
+            // Online wird sofort geflusht; offline bleibt's drin bis zum nächsten
+            // online-Event (siehe app.js).
             try {
-                await api.setCheck(kategorie, schluessel, cb.checked);
+                await checksQueue.enqueue(kategorie, schluessel, cb.checked);
             } catch (err) {
-                console.error('Check-Sync zum Server fehlgeschlagen:', err);
+                console.error('Check konnte nicht queued werden:', err);
+                return;
+            }
+            if (navigator.onLine) {
+                checksQueue.flush(api).catch(err => console.warn('Sync failed:', err));
             }
         });
     });
@@ -120,12 +128,21 @@ export async function renderEinkaufsliste(root) {
     // nicht im Service-Worker-Cache ist und gerade kein Netz da → still
     // mit leerem Set zurück, damit die Aggregations-View weiter funktioniert.
     // Echte Server-Fehler werden geloggt aber nicht eskaliert.
+    // Mergt zusätzlich pending Mutations aus der IDB-Queue, damit lokal
+    // gesetzte Häkchen sofort im DOM erscheinen, auch offline.
     async function safeGetChecks() {
+        let server;
         try {
-            return await api.getChecks();
+            server = await api.getChecks();
         } catch (err) {
             console.warn('Checks nicht ladbar (vermutlich offline):', err);
-            return { zutaten: [], gewuerze: [], equipment: [] };
+            server = { zutaten: [], gewuerze: [], equipment: [] };
+        }
+        try {
+            return await checksQueue.applyPendingToChecks(server);
+        } catch (err) {
+            console.warn('IDB-Queue nicht lesbar:', err);
+            return server;
         }
     }
 
@@ -269,6 +286,7 @@ export async function renderEinkaufsliste(root) {
             if (!confirm('Alle Rezepte aus der Einkaufsliste entfernen?')) return;
             cart.clear();
             try { await api.clearChecks(); } catch (err) { console.error('clearChecks failed:', err); }
+            try { await checksQueue.clearAll(); } catch (err) { console.warn('Queue-Clear failed:', err); }
             draw();
         });
 
@@ -312,8 +330,9 @@ export async function renderEinkaufsliste(root) {
             const data = await api.getSavedList(name);
             // Snapshot mitnehmen — gespeicherte Liste ist eingefroren
             cart.replaceAll(data.items || [], data.snapshot || {});
-            // Neue Liste = neuer Einkaufszyklus → Häkchen zurücksetzen
+            // Neue Liste = neuer Einkaufszyklus → Häkchen und pending-Queue zurücksetzen
             try { await api.clearChecks(); } catch (err) { console.error('clearChecks failed:', err); }
+            try { await checksQueue.clearAll(); } catch (err) { console.warn('Queue-Clear failed:', err); }
             draw();
         } catch (err) {
             alert('Laden fehlgeschlagen: ' + err.message);
@@ -514,10 +533,13 @@ export async function renderEinkaufsliste(root) {
         }
     }
 
-    /** Server-seitig alle Häkchen einer Kategorie löschen und View neu rendern */
+    /** Server-seitig alle Häkchen einer Kategorie löschen und View neu rendern.
+     *  Lokale pending-Queue komplett leeren, damit ausstehende Mutationen
+     *  den DELETE nicht direkt wieder überschreiben. */
     async function resetChecksFor(kategorie, regenerate) {
         try {
             await api.clearChecks(kategorie);
+            try { await checksQueue.clearAll(); } catch (err) { console.warn('Queue-Clear failed:', err); }
             await regenerate();
         } catch (err) {
             alert('Häkchen zurücksetzen fehlgeschlagen: ' + err.message);
