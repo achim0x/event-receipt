@@ -1,10 +1,13 @@
 import { APP_BASE } from './config.js';
-import { api } from './api.js';
+import { api, onTokenInvalid, getToken } from './api.js';
 import * as checksQueue from './checks_queue.js';
 import { renderRezeptListe, renderRezeptDetail, renderRezeptEdit } from './views/rezepte.js';
 import { renderUpload } from './views/upload.js';
 import { renderEinkaufsliste } from './views/einkaufsliste.js';
 import { renderRezeptePrint } from './views/rezepte_print.js';
+import { renderSetup } from './views/setup.js';
+import { renderGeraete } from './views/geraete.js';
+import { renderPair } from './views/pair.js';
 
 // Legacy localStorage-Key — wird einmalig beim ersten Start auf den Server
 // migriert (falls Server-Cart noch leer und localStorage Items enthält) und
@@ -162,6 +165,9 @@ const routes = [
     { pattern: /^\/upload$/, handler: () => renderUpload(app) },
     { pattern: /^\/einkaufsliste\/rezepte$/, handler: () => renderRezeptePrint(app) },
     { pattern: /^\/einkaufsliste$/, handler: () => renderEinkaufsliste(app) },
+    { pattern: /^\/setup$/, handler: () => renderSetup(app) },
+    { pattern: /^\/geraete$/, handler: () => renderGeraete(app) },
+    { pattern: /^\/pair$/, handler: () => renderPair(app) },
 ];
 
 const app = document.getElementById('app');
@@ -238,9 +244,47 @@ export const network = {
     isOnline: () => navigator.onLine,
 };
 
-// Bevor wir rendern, einmal den Server-State holen — sonst zeigt z.B. die
-// Detail-View "+/✓ Im Cart" falsch.
+// Bei 401-Antwort eines API-Calls: Token war ungültig → falls wir nicht
+// schon auf /pair sind, dort hin redirecten.
+onTokenInvalid(() => {
+    const p = getRoutePath();
+    if (p !== '/pair' && p !== '/setup') {
+        navigate('/pair', true);
+    }
+});
+
+// Beim App-Start: Auth-Status checken. Wenn Auth aktiv ist und kein
+// gültiger Token vorhanden ist → User direkt zum richtigen Setup-Schritt
+// schicken. Sonst initCart + render wie bisher.
 (async () => {
+    let authStatus = null;
+    try {
+        authStatus = await api.getAuthStatus();
+    } catch (err) {
+        // Setup-Endpoint unreachable (offline / kaputt) — Fallback: normal weiter
+        console.warn('Auth-Status nicht prüfbar:', err);
+    }
+
+    if (authStatus && authStatus.require_auth) {
+        // Geräte-Link nur einblenden wenn Auth aktiv ist — sonst Nav clean halten
+        const navLink = document.querySelector('.nav-geraete');
+        if (navLink) navLink.hidden = false;
+
+        const path = getRoutePath();
+        if (!authStatus.has_admin) {
+            // Erst-Setup nötig — egal wo der User hingeht, /setup gewinnt
+            if (path !== '/setup') {
+                navigate('/setup', true);
+                return;
+            }
+        } else if (!getToken() && path !== '/setup' && path !== '/pair') {
+            // Authorisierung gefordert, aber wir haben keinen Token →
+            // Cookie-Auth ist die andere Möglichkeit (Web-Admin). initCart
+            // unten wird's herausfinden — wenn der API-Call 401 wirft,
+            // schickt der onTokenInvalid-Handler uns ggf. auf /pair.
+        }
+    }
+
     await initCart();
     render();
 })();

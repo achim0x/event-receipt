@@ -260,6 +260,27 @@ Once installed and opened once with a working connection:
 - Phase 2 of the PWA work introduces persisted checkbox state with
   background-sync (planned).
 
+### Enable device-pairing (optional, opt-in)
+
+By default the app is open — anyone reaching the URL has full access.
+That's fine for a LAN/single-household setup. For Internet-facing
+deployments you can switch on token-based device pairing:
+
+1. In `api/bootstrap.php`, set `const REQUIRE_AUTH_TOKEN = true;`
+2. Reload the app — the browser lands on `/setup`
+3. Click „Setup-Token erzeugen"
+4. SSH to the server and read the one-shot token:
+   `cat <install-dir>/data/admin_setup_token.txt`
+5. Paste it on `/setup` → you're logged in as Web Admin (cookie set)
+6. Go to „Geräte" in the top nav → „Pairing-Code erzeugen"
+7. On the phone: open the PWA URL → automatic redirect to `/pair` →
+   enter the 8-character code (XXXX-XXXX) within 5 minutes
+8. The phone stores a bearer token in localStorage; from now on every
+   request is signed
+
+Revoke compromised devices from the same „Geräte" screen. Logout
+clears the web cookie only — bearer tokens stay valid until revoked.
+
 ### Replace placeholder icons
 
 The bundled icons in `assets/icons/` are minimal placeholders (single-

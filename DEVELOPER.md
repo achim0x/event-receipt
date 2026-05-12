@@ -994,6 +994,57 @@ Wer die App im Internet (statt LAN) betreibt:
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
 
+### 2026-05-12 — PWA-Phase 6: Setup + Pair-Flow + Auth-aware Frontend
+
+Vollständiger Pairing-Flow inkl. Setup-Wizard. Auth bleibt opt-in
+(`REQUIRE_AUTH_TOKEN`-Konstante in `bootstrap.php`); ab Aktivierung
+fließt alles durch den neuen Auth-Gate.
+
+**Backend**:
+- Neue Tabelle `pairing_codes (code PK, name, typ, erstellt_am, expires_at)` für kurzlebige Codes (5 min TTL).
+- `api/setup.php`: GET `?action=status`, POST `activate` (schreibt einmaligen Setup-Token in `data/admin_setup_token.txt` mit `chmod 600`), POST `redeem-setup` (tauscht den Setup-Token gegen ein Web-Admin-Gerät + HttpOnly-Cookie, löscht die Datei). Alle SKIP_AUTH.
+- `api/auth.php`: GET `?action=devices` (Liste aller Geräte), POST `pair` (8-Zeichen-Code generieren, in `pairing_codes` ablegen — Auth-required), POST `redeem-pair` (Code einlösen, Token zurückgeben — SKIP_AUTH), POST `revoke` (aktiv=0), POST `logout` (Cookie clearen).
+- `bootstrap.php`: Helper `set_session_cookie()`/`clear_session_cookie()` mit HttpOnly + SameSite=Strict + Secure (HTTPS-Auto-Detect).
+
+**Pairing-Code-Format**: 8 Zeichen aus Alphabet `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (ohne `I/O/0/1` für bessere Lesbarkeit). Anzeige als `XXXX-XXXX`. Eingabe akzeptiert beliebige Capitalisation und Bindestriche. **Kein QR-Code** in dieser Phase — 8-Zeichen-Codes sind UX-mäßig akzeptabel und sparen ~10 KB Frontend-Code für eine QR-Lib.
+
+**Frontend**:
+- `api.js`: Token-Helper (`getToken`/`setToken`/`clearToken`/`onTokenInvalid`) plus interner `authFetch()`-Wrapper der bei jedem Request `Authorization: Bearer <token>` setzt wenn Token im localStorage liegt. Bei 401-Response wird der Token gelöscht und der Listener aufgerufen.
+- `app.js`: Routes `/setup`, `/geraete`, `/pair`. Beim App-Start `api.getAuthStatus()` → wenn `require_auth && !has_admin` → Redirect `/setup`. Wenn `require_auth && !token && nicht auf /setup oder /pair` → über Token-Invalidation-Hook auf `/pair`. Geräte-Link in der Top-Nav wird nur eingeblendet wenn Auth aktiv.
+- 3 neue Views:
+  - `setup.js`: drei Zustände (Auth-aus → Anleitung, Auth-an+kein-Admin → Setup-Wizard mit `activate`+`redeem-setup`, Auth-an+Admin → Redirect zu `/geraete`).
+  - `geraete.js`: Liste aller Geräte (inkl. revozierter), aktuelles Gerät markiert, „Widerrufen" pro Eintrag, „Pairing-Code erzeugen"-Form (Name + Typ + Button).
+  - `pair.js`: Code-Eingabefeld mit Live-Format-Helper (Auto-Bindestrich nach 4 Zeichen, Upper-Case, nur A-Z/0-9). Bei Erfolg → Token in localStorage → Redirect `/`.
+
+**Service Worker**:
+- `CACHE_VERSION = 'v5'`. Neue Views (`setup.js`, `geraete.js`, `pair.js`) in PRECACHE_PATHS.
+- `/api/setup.php` und `/api/auth.php` werden vom SW **nicht gecached** (Status muss live aktuell sein, sonst sieht der User nach Auth-Aktivierung noch den alten „Auth aus"-Pfad).
+
+**Bug-Fix während Phase 6**: `mb_strlen` in `auth.php` ohne Fallback — kracht auf Systemen ohne mbstring. Jetzt mit `function_exists`-Guard und `strlen`-Fallback (konsistent zu translation.php/cart.php).
+
+**Smoke-Tests E2E** (17 Punkte, alle grün):
+- Status zeigt korrekt require_auth + has_admin
+- API ohne Token → 401
+- Setup activate → 200, schreibt 64-hex-Token in geschützte Datei
+- Falscher Setup-Token → 401
+- Richtiger Setup-Token → 200 + Cookie gesetzt + File gelöscht
+- Cookie-Auth → 200
+- Pair-Endpoint liefert XXXX-XXXX-Format
+- Code einlösen → Bearer-Token (64 hex), funktioniert für API
+- Code zweites Mal einlösen → 404 (verbraucht)
+- Devices-Liste zeigt beide Geräte
+- Mobile widerrufen → Bearer → 401
+- Logout-Response setzt `expires=Thu, 01 Jan 1970`
+
+**Production-Workflow** (für den User):
+1. `REQUIRE_AUTH_TOKEN` auf `true` setzen in `api/bootstrap.php`
+2. PWA neu laden → Browser landet auf `/setup`
+3. „Setup-Token erzeugen" klicken
+4. Per SSH: `cat <app>/data/admin_setup_token.txt` → Token kopieren
+5. Token in `/setup` einfügen → eingeloggt als Web Admin
+6. Auf `/geraete`: neues Gerät pairen → 8-Zeichen-Code anzeigen
+7. Auf Mobile-Browser PWA öffnen → automatisch auf `/pair` → Code eingeben → Token landet in localStorage → fertig
+
 ### 2026-05-12 — PWA-Phase 5: Backend Auth-Infrastructure
 
 Vorarbeit für QR-Pairing in Phase 6. Das Backend lernt Geräte und

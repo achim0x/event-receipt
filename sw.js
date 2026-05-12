@@ -13,7 +13,7 @@
 // Beim Deploy: CACHE_VERSION hochziehen → alle alten Caches werden
 // beim activate-Event aufgeräumt.
 
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v5';
 const PRECACHE = `precache-${CACHE_VERSION}`;
 const RUNTIME = `runtime-${CACHE_VERSION}`;
 
@@ -39,6 +39,9 @@ const PRECACHE_PATHS = [
     'assets/views/upload.js',
     'assets/views/einkaufsliste.js',
     'assets/views/rezepte_print.js',
+    'assets/views/setup.js',
+    'assets/views/geraete.js',
+    'assets/views/pair.js',
     'assets/icons/icon.svg',
     'assets/icons/icon-192.png',
     'assets/icons/icon-512.png',
@@ -95,8 +98,13 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // API-GETs: Stale-While-Revalidate
+    // API-GETs: Stale-While-Revalidate. Ausnahme: Auth-/Setup-Endpoints
+    // werden NICHT gecached — der Status (require_auth, has_admin etc.)
+    // muss live aktuell sein, sonst sieht der User stale Setup-Schritte.
     if (url.pathname.startsWith(SCOPE + 'api/')) {
+        if (url.pathname.endsWith('/setup.php') || url.pathname.endsWith('/auth.php')) {
+            return;  // Browser-default = network passthrough
+        }
         event.respondWith(staleWhileRevalidate(req));
         return;
     }

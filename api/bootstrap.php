@@ -154,9 +154,7 @@ $db->exec("
 ");
 
 // --- Auth-Infrastructure ---------------------------------------------------
-// Geräte-Tabelle für QR-basierte Authentifizierung. Wird in Phase 5 angelegt,
-// wirklich genutzt aber erst wenn REQUIRE_AUTH_TOKEN auf true gesetzt wird
-// (siehe unten) und Phase 6 das Setup/Pairing-UI bringt.
+// Geräte-Tabelle für Token-basierte Authentifizierung.
 $db->exec("
     CREATE TABLE IF NOT EXISTS geraete (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -166,6 +164,19 @@ $db->exec("
         erstellt_am DATETIME DEFAULT CURRENT_TIMESTAMP,
         zuletzt_gesehen DATETIME,
         aktiv INTEGER NOT NULL DEFAULT 1
+    );
+");
+
+// Kurz-lebige Pairing-Codes für „neues Gerät koppeln". Web-UI generiert
+// einen Code, Mobile löst ihn ein und bekommt dafür den echten Token.
+// expires_at als ISO-String, wird beim Einlösen geprüft.
+$db->exec("
+    CREATE TABLE IF NOT EXISTS pairing_codes (
+        code TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        typ TEXT NOT NULL,
+        erstellt_am DATETIME DEFAULT CURRENT_TIMESTAMP,
+        expires_at DATETIME NOT NULL
     );
 ");
 
@@ -232,6 +243,37 @@ function current_geraet(): ?array {
         error_log('[rezepte-app] current_geraet lookup failed: ' . $e->getMessage());
         return null;
     }
+}
+
+/**
+ * HttpOnly-Session-Cookie für die Web-UI setzen. SameSite=Strict + Secure
+ * wenn HTTPS aktiv ist (auto-detect). Path = APP_BASE.
+ */
+function set_session_cookie(string $token): void {
+    $base = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/'), '/\\') . '/';
+    // Wir liegen unter /api/ — der Cookie soll aber für den App-Pfad gelten,
+    // nicht nur fürs API-Subdir. Daher dirname von dirname.
+    $appBase = rtrim(dirname(rtrim($base, '/')), '/\\') . '/';
+    $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || ($_SERVER['SERVER_PORT'] ?? '') === '443';
+    setcookie('rezepte_session', $token, [
+        'expires' => 0,                        // Session-Cookie (Browser-Schließung)
+        'path' => $appBase,
+        'secure' => $secure,
+        'httponly' => true,
+        'samesite' => 'Strict',
+    ]);
+}
+
+function clear_session_cookie(): void {
+    $base = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/'), '/\\') . '/';
+    $appBase = rtrim(dirname(rtrim($base, '/')), '/\\') . '/';
+    setcookie('rezepte_session', '', [
+        'expires' => time() - 3600,
+        'path' => $appBase,
+        'httponly' => true,
+        'samesite' => 'Strict',
+    ]);
 }
 
 /**

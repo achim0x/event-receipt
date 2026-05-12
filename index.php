@@ -40,6 +40,7 @@ $base = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\') . '/';
                     Einkaufsliste
                     <span class="badge" id="cart-badge" hidden>0</span>
                 </a>
+                <a href="geraete" data-link class="nav-geraete" hidden>Geräte</a>
             </nav>
         </div>
     </header>
