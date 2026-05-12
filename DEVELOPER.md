@@ -994,6 +994,26 @@ Wer die App im Internet (statt LAN) betreibt:
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
 
+### 2026-05-12 — SW-Bug-Fix: App-Shell zeigte auf sich selbst
+
+Drei zusammenhängende Live-Bugs, alle mit derselben Ursache:
+- Offline-Reload → der Browser zeigt den SW-Quelltext statt der App
+- Banner sichtbar obwohl online
+- needs-network-Buttons sehen normal aus
+
+Ursache: `PRECACHE_PATHS[0]` war `''`, was über `new URL('', sw.js-URL)`
+auf die SW-Datei selbst resolvte (`/<mount>/sw.js`) statt auf den
+App-Shell-Pfad (`/<mount>/`). Folge: SW cachte sich selbst als
+App-Shell und lieferte sich offline als Navigation-Response aus → der
+Browser rendert den JS-Quelltext.
+
+Fix: `'./'` statt `''` für den App-Shell-Slot (resolved korrekt zum
+Scope-Pfad). Plus `CACHE_VERSION = 'v2'` damit Bestandsnutzer einen
+sauberen Cache bekommen — sonst hängt der alte HTML/CSS-Mix weiter
+fest (HTML schon Phase 3 mit Banner-Element + needs-network-Klassen,
+CSS aber noch Phase 2 ohne die zugehörigen Regeln → Banner permanent
+sichtbar, Buttons unverändert).
+
 ### 2026-05-12 — PWA-Phase 3: Offline-UI
 
 - Neuer Offline-Banner im `index.php`-Header (`<div class="offline-banner">`), per CSS standardmäßig hidden, sichtbar wenn `<body>` die Klasse `is-offline` hat.

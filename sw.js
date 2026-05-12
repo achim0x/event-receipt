@@ -13,7 +13,7 @@
 // Beim Deploy: CACHE_VERSION hochziehen → alle alten Caches werden
 // beim activate-Event aufgeräumt.
 
-const CACHE_VERSION = 'v1';
+const CACHE_VERSION = 'v2';
 const PRECACHE = `precache-${CACHE_VERSION}`;
 const RUNTIME = `runtime-${CACHE_VERSION}`;
 
@@ -24,7 +24,9 @@ const SCOPE = new URL('./', self.location.href).pathname;
 // App-Shell + Core-Module, die beim install eingecacht werden.
 // Pfade relativ zum SCOPE; werden über new URL() resolved.
 const PRECACHE_PATHS = [
-    '',  // entspricht SCOPE — der App-Shell-Einstiegspunkt (index.php)
+    './',  // App-Shell-Einstiegspunkt (= SCOPE). Wichtig: NICHT '' setzen —
+           // new URL('', sw.js-URL) würde auf die SW-Datei selbst resolven
+           // und dann läge der SW-Quelltext als „App-Shell" im Cache.
     'manifest.webmanifest',
     'assets/style.css',
     'assets/config.js',
