@@ -107,6 +107,15 @@ $db->exec("
 $db->exec("CREATE INDEX IF NOT EXISTS idx_titel ON rezepte(titel);");
 $db->exec("CREATE INDEX IF NOT EXISTS idx_kategorie ON rezepte(kategorie);");
 
+// Tags-Spalte (idempotent — wird bei Bestand-DBs nachgezogen). Speichert die
+// Tags als comma-gewrappten String (",vegan,vegetarian,") damit ein einfaches
+// LIKE-Filter '%,vegan,%' zuverlässig matched ohne Substring-Verwechslung.
+// Leer ist NULL (oder '') — beides wird vom Filter als „kein Tag" gewertet.
+$rezCols = $db->query("PRAGMA table_info(rezepte)")->fetchAll(PDO::FETCH_COLUMN, 1);
+if (!in_array('tags', $rezCols, true)) {
+    $db->exec("ALTER TABLE rezepte ADD COLUMN tags TEXT");
+}
+
 // Singleton-Tabelle für die geteilte aktuelle Einkaufsliste — eine Zeile (id=1).
 // `snapshot` ist optionaler Frozen-Daten-Blob (JSON Object {id: rezeptDaten})
 // für den Snapshot-Modus: wenn nicht leer, werden Mengen/Zubereitung aus

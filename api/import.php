@@ -60,8 +60,8 @@ $imported = 0;
 $failed = [];
 
 $insert = $db->prepare('
-    INSERT INTO rezepte (titel, kategorie, quelle, zubereitungszeit, daten)
-    VALUES (:titel, :kategorie, :quelle, :zubereitungszeit, :daten)
+    INSERT INTO rezepte (titel, kategorie, quelle, zubereitungszeit, daten, tags)
+    VALUES (:titel, :kategorie, :quelle, :zubereitungszeit, :daten, :tags)
 ');
 
 foreach ($recipes as $i => $rezept) {
@@ -74,6 +74,7 @@ foreach ($recipes as $i => $rezept) {
                 ':quelle' => isset($normalized['source']) ? (string) $normalized['source'] : null,
                 ':zubereitungszeit' => isset($normalized['preparation_time']) ? (string) $normalized['preparation_time'] : null,
                 ':daten' => json_encode($normalized, JSON_UNESCAPED_UNICODE),
+                ':tags' => tags_to_column($normalized['tags'] ?? []),
             ]);
         }
         $imported++;

@@ -52,10 +52,11 @@ function authFetch(url, init = {}) {
 }
 
 export const api = {
-    async listRezepte({ suche = '', kategorie = '' } = {}) {
+    async listRezepte({ suche = '', kategorie = '', tag = '' } = {}) {
         const params = new URLSearchParams();
         if (suche) params.set('suche', suche);
         if (kategorie) params.set('kategorie', kategorie);
+        if (tag) params.set('tag', tag);
         const qs = params.toString();
         const res = await authFetch(`${BASE}/rezepte.php${qs ? '?' + qs : ''}`);
         return handle(res);

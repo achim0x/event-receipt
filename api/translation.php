@@ -33,6 +33,7 @@ const MAX_SPICE_LEN       = 200;
 const MAX_PREP_STEP_LEN   = 5000;
 const MAX_TIP_LEN         = 2000;
 const MAX_EQUIPMENT_NAME  = 200;
+const MAX_TAG_LEN         = 50;
 
 function load_translation_map(): array {
     $candidates = [
@@ -198,6 +199,85 @@ function normalize_single_department(string $dept): ?string {
 }
 
 /**
+ * Erlaubte Diät-Tags. Aktuell nur vegan und vegetarian — die Liste ist
+ * bewusst klein und kuratiert, statt freiform Tags zuzulassen (sonst zerfasert
+ * der Filter sofort über Schreibvarianten wie „Vegi"/„Vegg" etc.).
+ * Bei Erweiterung: hier den Slug ergänzen + UI-Labels in `aggregate.js` /
+ * `tags_en_to_de` in `translation_map.json`.
+ */
+function valid_tags(): array {
+    return ['vegan', 'vegetarian'];
+}
+
+/**
+ * DE→EN-Mapping für Tag-Werte. Wird beim Upload/PUT verwendet damit User
+ * deutsche Wörter im JSON nutzen können.
+ */
+function german_to_english_tag(): array {
+    return [
+        'vegan'        => 'vegan',
+        'vegetarisch'  => 'vegetarian',
+    ];
+}
+
+/**
+ * Akzeptiert deutsche ODER englische Tag-Schreibweise (case-insensitiv) und
+ * gibt den englischen kanonischen Slug zurück. Leer → null. Unbekannt → null.
+ */
+function canonicalize_tag(string $value): ?string {
+    $value = trim($value);
+    if ($value === '') return null;
+    $lower = strtolower($value);
+
+    foreach (valid_tags() as $slug) {
+        if (strtolower($slug) === $lower) return $slug;
+    }
+    $de2en = german_to_english_tag();
+    if (isset($de2en[$lower])) return $de2en[$lower];
+    return null;
+}
+
+/**
+ * Normalisiert das tags-Array in-place: trimmt, canonicalisiert (DE→EN),
+ * dedupliziert in stabiler Reihenfolge (= Reihenfolge in valid_tags). Wirft
+ * Validierungsfehler in $errors bei unbekannten Werten oder falschem Typ.
+ * Wenn das Feld fehlt, wird leeres Array eingesetzt.
+ */
+function normalize_tags_in_recipe(array &$recipe, array &$errors): void {
+    if (!array_key_exists('tags', $recipe)) {
+        $recipe['tags'] = [];
+        return;
+    }
+    if (!is_array($recipe['tags']) || !array_is_list($recipe['tags'])) {
+        $errors[] = 'Feld "tags" muss ein Array sein';
+        $recipe['tags'] = [];
+        return;
+    }
+    $clean = [];
+    foreach ($recipe['tags'] as $raw) {
+        if (!is_string($raw)) {
+            $errors[] = 'tags darf nur Strings enthalten';
+            continue;
+        }
+        $sanitized = sanitize_text($raw, MAX_TAG_LEN);
+        if ($sanitized === '') continue;
+        $canon = canonicalize_tag($sanitized);
+        if ($canon === null) {
+            $valid = implode('", "', valid_tags());
+            $errors[] = sprintf('Unbekannter Tag "%s". Erlaubt: "%s"', $sanitized, $valid);
+            continue;
+        }
+        $clean[$canon] = true;  // Dedup via Key
+    }
+    // In kanonischer Reihenfolge ausgeben — UI/DB-Pretty-Print profitieren
+    $ordered = [];
+    foreach (valid_tags() as $slug) {
+        if (isset($clean[$slug])) $ordered[] = $slug;
+    }
+    $recipe['tags'] = $ordered;
+}
+
+/**
  * Geht alle ingredients[].items[] durch und normalisiert die Departments in-place.
  * Sammelt unbekannte Werte in $errors.
  */
@@ -356,7 +436,34 @@ function normalize_recipe_strict(mixed $data): array {
         throw new RecipeValidationException('Abteilungs-Fehler: ' . implode('; ', $deptErrors));
     }
 
+    $tagErrors = [];
+    normalize_tags_in_recipe($normalized, $tagErrors);
+    if (!empty($tagErrors)) {
+        throw new RecipeValidationException('Tag-Fehler: ' . implode('; ', $tagErrors));
+    }
+
     return $normalized;
+}
+
+/**
+ * Bildet das tags-Array auf den DB-Spalten-String ab: comma-wrapped
+ * (",vegan,vegetarian,") damit ein einfaches LIKE '%,vegan,%' eindeutig
+ * matched. Leeres Array → null (Spalte bleibt NULL).
+ */
+function tags_to_column(array $tags): ?string {
+    if (empty($tags)) return null;
+    return ',' . implode(',', $tags) . ',';
+}
+
+/**
+ * Umkehrung von tags_to_column — liest den Spalten-Wert zurück in ein Array.
+ * Robust gegen NULL/empty/whitespace.
+ */
+function column_to_tags(?string $value): array {
+    if ($value === null) return [];
+    $trimmed = trim($value, ", \t\r\n");
+    if ($trimmed === '') return [];
+    return array_values(array_filter(explode(',', $trimmed), fn($t) => $t !== ''));
 }
 
 function normalize_recipe(mixed $data): array {

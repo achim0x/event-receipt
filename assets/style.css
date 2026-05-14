@@ -355,6 +355,59 @@ textarea#editor {
     vertical-align: middle;
 }
 
+/* Diät-Tags (vegan / vegetarisch) — eigene Farbpalette, damit sie sich von
+   der Kategorien-Pille (rote `.tag`) und dem Abteilungs-Chip (blaue `.dept-tag`)
+   unterscheiden. */
+.diet-tag {
+    display: inline-block;
+    font-size: 0.75rem;
+    padding: 0.1rem 0.55rem;
+    border-radius: 999px;
+    font-weight: 500;
+    vertical-align: middle;
+}
+.diet-vegan {
+    background: #e6f4ea;
+    color: #1b5e20;
+    border: 1px solid #c8e6c9;
+}
+.diet-vegetarian {
+    background: #f1f8e9;
+    color: #33691e;
+    border: 1px solid #dcedc8;
+}
+.card .tag-row {
+    margin: 0.3rem 0;
+    display: flex;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+}
+
+/* Tag-Checkboxen im Form-Editor */
+.tag-checks {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin: 0.3rem 0;
+}
+.tag-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.8rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    user-select: none;
+}
+.tag-check input { margin: 0; }
+.tag-check:has(input:checked) {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+}
+
 .warning-box {
     background: #fff8e1;
     border-left: 4px solid #f9a825;

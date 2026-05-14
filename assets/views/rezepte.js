@@ -1,6 +1,7 @@
 import { api } from '../api.js';
 import { cart, navigate } from '../app.js';
 import { displayUnit } from '../units.js';
+import { VALID_TAGS, displayTag } from '../tags.js';
 
 function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, (c) => ({
@@ -36,6 +37,10 @@ export async function renderRezeptListe(root) {
                 <select id="kategorie">
                     <option value="">Alle Kategorien</option>
                 </select>
+                <select id="tag">
+                    <option value="">Alle Etiketten</option>
+                    ${VALID_TAGS.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(displayTag(t))}</option>`).join('')}
+                </select>
             </div>
             <div id="liste" class="card-grid"><p class="muted">Lade…</p></div>
         </section>
@@ -43,6 +48,7 @@ export async function renderRezeptListe(root) {
 
     const sucheEl = root.querySelector('#suche');
     const katEl = root.querySelector('#kategorie');
+    const tagEl = root.querySelector('#tag');
     const listeEl = root.querySelector('#liste');
 
     let kategorien = new Set();
@@ -50,11 +56,14 @@ export async function renderRezeptListe(root) {
     async function loadAndRender() {
         const suche = sucheEl.value.trim();
         const kategorie = katEl.value;
+        const tag = tagEl.value;
         try {
-            const rezepte = await api.listRezepte({ suche, kategorie });
+            const rezepte = await api.listRezepte({ suche, kategorie, tag });
             renderListe(rezepte);
-            // Kategorien beim ersten Laden ohne Filter erfassen
-            if (!suche && !kategorie) {
+            // Kategorien beim ersten Laden ohne Filter erfassen — Tag-Auswahl
+            // selbst soll die Kategorien-Liste nicht verkleinern, denn sonst
+            // bleibt eine ehemals ausgewählte Kategorie nicht auswählbar.
+            if (!suche && !kategorie && !tag) {
                 kategorien = new Set(rezepte.map(r => r.kategorie).filter(Boolean));
                 renderKategorien();
             }
@@ -77,18 +86,26 @@ export async function renderRezeptListe(root) {
             listeEl.innerHTML = `<p class="muted">Keine Rezepte gefunden. <a href="rezept/neu" data-link>Lege ein neues Rezept an</a> oder <a href="upload" data-link>lade eine JSON-Datei hoch</a>.</p>`;
             return;
         }
-        listeEl.innerHTML = rezepte.map(r => `
-            <a class="card" href="rezept/${r.id}" data-link>
-                <h3>${escapeHtml(r.titel)}</h3>
-                ${r.kategorie ? `<span class="tag">${escapeHtml(r.kategorie)}</span>` : ''}
-                ${r.zubereitungszeit ? `<p class="muted">⏱ ${escapeHtml(r.zubereitungszeit)}</p>` : ''}
-                ${r.quelle ? `<p class="muted">📖 ${escapeHtml(r.quelle)}</p>` : ''}
-            </a>
-        `).join('');
+        listeEl.innerHTML = rezepte.map(r => {
+            const tags = Array.isArray(r.tags) ? r.tags : [];
+            const tagsHtml = tags.length
+                ? `<div class="tag-row">${tags.map(t => `<span class="diet-tag diet-${escapeHtml(t)}">${escapeHtml(displayTag(t))}</span>`).join('')}</div>`
+                : '';
+            return `
+                <a class="card" href="rezept/${r.id}" data-link>
+                    <h3>${escapeHtml(r.titel)}</h3>
+                    ${r.kategorie ? `<span class="tag">${escapeHtml(r.kategorie)}</span>` : ''}
+                    ${tagsHtml}
+                    ${r.zubereitungszeit ? `<p class="muted">⏱ ${escapeHtml(r.zubereitungszeit)}</p>` : ''}
+                    ${r.quelle ? `<p class="muted">📖 ${escapeHtml(r.quelle)}</p>` : ''}
+                </a>
+            `;
+        }).join('');
     }
 
     sucheEl.addEventListener('input', debounce(loadAndRender, 200));
     katEl.addEventListener('change', loadAndRender);
+    tagEl.addEventListener('change', loadAndRender);
 
     await loadAndRender();
 }
@@ -109,6 +126,11 @@ export async function renderRezeptDetail(root, id) {
     const preparation = Array.isArray(daten.preparation) ? daten.preparation.filter(Boolean) : [];
     const tips = Array.isArray(daten.tips) ? daten.tips.filter(Boolean) : [];
     const equipment = Array.isArray(daten.kitchen_equipment) ? daten.kitchen_equipment : [];
+    // tags kommen sowohl als denormalisiertes Top-Level-Array (vom Listing-Endpoint
+    // konsistenz-halber auch hier) als auch im daten-Blob — Top-Level gewinnt.
+    const tagsArr = Array.isArray(rezept.tags) && rezept.tags.length
+        ? rezept.tags
+        : (Array.isArray(daten.tags) ? daten.tags : []);
 
     const inCart = cart.has(rezept.id);
     const startPersonen = inCart ? (cart.all().find(c => c.id === rezept.id)?.personen || 1) : 1;
@@ -119,6 +141,7 @@ export async function renderRezeptDetail(root, id) {
             <h1>${escapeHtml(rezept.titel)}</h1>
             <div class="meta">
                 ${rezept.kategorie ? `<span class="tag">${escapeHtml(rezept.kategorie)}</span>` : ''}
+                ${tagsArr.map(t => `<span class="diet-tag diet-${escapeHtml(t)}">${escapeHtml(displayTag(t))}</span>`).join('')}
                 ${rezept.zubereitungszeit ? `<span>⏱ ${escapeHtml(rezept.zubereitungszeit)}</span>` : ''}
                 ${rezept.quelle ? `<span>📖 ${escapeHtml(rezept.quelle)}</span>` : ''}
             </div>

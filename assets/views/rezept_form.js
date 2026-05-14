@@ -12,6 +12,7 @@
 import { api } from '../api.js';
 import { navigate, cart } from '../app.js';
 import { VALID_DEPARTMENTS, displayDepartment } from '../aggregate.js';
+import { VALID_TAGS, displayTag } from '../tags.js';
 
 function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, (c) => ({
@@ -69,6 +70,7 @@ function emptyRecipe() {
         category: '',
         source: '',
         preparation_time: '',
+        tags: [],
         ingredients: [{ group: '', items: [{ quantity: '', unit: '', name: '', department: '' }] }],
         spices: [],
         preparation: [''],
@@ -132,6 +134,7 @@ function renderForm(root, { mode, id, data, backLink, title }) {
 
             <form id="rezept-form" novalidate>
                 ${renderGeneralFields(data)}
+                ${renderTagsBlock(data.tags)}
                 ${renderIngredientsBlock(data.ingredients)}
                 ${renderSimpleListBlock('Gewürze', 'spices', data.spices, 'Gewürz hinzufügen', false)}
                 ${renderSimpleListBlock('Zubereitung', 'preparation', data.preparation, 'Schritt hinzufügen', true)}
@@ -176,6 +179,28 @@ function renderGeneralFields(data) {
                 <span>Quelle</span>
                 <input type="text" name="source" value="${escapeHtml(data.source ?? '')}" maxlength="200" placeholder="Kochbuch, URL, …">
             </label>
+        </fieldset>
+    `;
+}
+
+function renderTagsBlock(tags) {
+    // Tags sind ein controlled vocabulary (vegan/vegetarian) — daher Checkboxen
+    // statt Freitext. Bestandsdaten könnten DE-Werte enthalten; die Set-Logik
+    // unten case-insensitive matcht auf den Slug-Lowercase.
+    const active = new Set((Array.isArray(tags) ? tags : []).map(t => String(t).toLowerCase()));
+    const opts = VALID_TAGS.map(slug => {
+        const checked = active.has(slug.toLowerCase()) ? ' checked' : '';
+        return `
+            <label class="tag-check">
+                <input type="checkbox" name="tag" value="${escapeHtml(slug)}"${checked}>
+                <span>${escapeHtml(displayTag(slug))}</span>
+            </label>
+        `;
+    }).join('');
+    return `
+        <fieldset class="form-section">
+            <legend>Etiketten</legend>
+            <div class="tag-checks">${opts}</div>
         </fieldset>
     `;
 }
@@ -430,6 +455,13 @@ function serializeForm(form) {
         const v = trimOrNull(form.querySelector(`input[name="${f}"]`)?.value);
         if (v !== null) out[f] = v;
     }
+
+    // Tags: Checkbox-Values einsammeln (sind bereits englische Slugs)
+    const tags = [];
+    form.querySelectorAll('input[name="tag"]:checked').forEach(el => {
+        tags.push(el.value);
+    });
+    out.tags = tags;
 
     // Ingredients
     const groups = [];

@@ -39,7 +39,7 @@ switch ($method) {
 }
 
 function handleGetOne(PDO $db, int $id): void {
-    $stmt = $db->prepare('SELECT id, titel, kategorie, quelle, zubereitungszeit, daten, erstellt_am FROM rezepte WHERE id = :id');
+    $stmt = $db->prepare('SELECT id, titel, kategorie, quelle, zubereitungszeit, daten, tags, erstellt_am FROM rezepte WHERE id = :id');
     $stmt->execute([':id' => $id]);
     $row = $stmt->fetch();
 
@@ -47,14 +47,18 @@ function handleGetOne(PDO $db, int $id): void {
         json_error('Rezept nicht gefunden', 404);
     }
     $row['daten'] = json_decode($row['daten'], true);
+    // Spalten-Wert (",vegan,…,") in flaches Array umsetzen — Frontend bekommt
+    // immer eine Liste, auch bei NULL.
+    $row['tags'] = column_to_tags($row['tags'] ?? null);
     json_response($row);
 }
 
 function handleGetList(PDO $db): void {
     $suche = trim((string) ($_GET['suche'] ?? ''));
     $kategorie = trim((string) ($_GET['kategorie'] ?? ''));
+    $tagFilter = trim((string) ($_GET['tag'] ?? ''));
 
-    $sql = 'SELECT id, titel, kategorie, quelle, zubereitungszeit, erstellt_am FROM rezepte WHERE 1=1';
+    $sql = 'SELECT id, titel, kategorie, quelle, zubereitungszeit, tags, erstellt_am FROM rezepte WHERE 1=1';
     $params = [];
     if ($suche !== '') {
         $sql .= ' AND titel LIKE :suche';
@@ -64,11 +68,28 @@ function handleGetList(PDO $db): void {
         $sql .= ' AND kategorie = :kategorie';
         $params[':kategorie'] = $kategorie;
     }
+    if ($tagFilter !== '') {
+        // Canonicalisieren damit der User auch deutsche Tag-Werte via Query
+        // schicken kann (?tag=vegetarisch). Unbekannte Werte erzeugen einen
+        // garantiert leeren Match, kein 400 — der Filter ist Anzeige-bezogen.
+        $canon = canonicalize_tag($tagFilter);
+        if ($canon === null) {
+            // Kein Match möglich, aber wir liefern leere Liste statt 400 zurück
+            json_response([]);
+        }
+        $sql .= ' AND tags LIKE :tag';
+        $params[':tag'] = '%,' . $canon . ',%';
+    }
     $sql .= ' ORDER BY titel COLLATE NOCASE ASC';
 
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
-    json_response($stmt->fetchAll());
+    $rows = $stmt->fetchAll();
+    // tags-Spalte in Array umsetzen für gleichmäßige Frontend-Verarbeitung
+    foreach ($rows as &$r) {
+        $r['tags'] = column_to_tags($r['tags'] ?? null);
+    }
+    json_response($rows);
 }
 
 function handlePut(PDO $db, int $id): void {
@@ -99,7 +120,8 @@ function handlePut(PDO $db, int $id): void {
                kategorie = :kategorie,
                quelle = :quelle,
                zubereitungszeit = :zubereitungszeit,
-               daten = :daten
+               daten = :daten,
+               tags = :tags
          WHERE id = :id
     ');
     $up->execute([
@@ -108,6 +130,7 @@ function handlePut(PDO $db, int $id): void {
         ':quelle' => isset($normalized['source']) ? (string) $normalized['source'] : null,
         ':zubereitungszeit' => isset($normalized['preparation_time']) ? (string) $normalized['preparation_time'] : null,
         ':daten' => json_encode($normalized, JSON_UNESCAPED_UNICODE),
+        ':tags' => tags_to_column($normalized['tags'] ?? []),
         ':id' => $id,
     ]);
 

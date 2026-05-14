@@ -4,6 +4,7 @@
     "kategorie": "category",
     "quelle": "source",
     "zubereitungszeit": "preparation_time",
+    "etiketten": "tags",
     "zutaten": "ingredients",
     "gruppe": "group",
     "menge": "quantity",
@@ -20,6 +21,7 @@
     "category": "kategorie",
     "source": "quelle",
     "preparation_time": "zubereitungszeit",
+    "tags": "etiketten",
     "ingredients": "zutaten",
     "group": "gruppe",
     "quantity": "menge",
@@ -56,5 +58,13 @@
     "baking": "Backen",
     "staple-foods": "Grundnahrungsmittel",
     "other": "Sonstiges"
+  },
+  "tags_de_to_en": {
+    "vegan": "vegan",
+    "vegetarisch": "vegetarian"
+  },
+  "tags_en_to_de": {
+    "vegan": "Vegan",
+    "vegetarian": "Vegetarisch"
   }
 }

@@ -62,6 +62,7 @@ chmod 777 data/        # Apache muss SQLite-DB anlegen können
 │   ├── app.js                  # Router + Cart-State (server-backed, lokal gemirrort)
 │   ├── api.js                  # Fetch-Wrapper, BASE = APP_BASE + 'api'
 │   ├── units.js                # displayUnit() — Pcs→Stück, Pck→Packung
+│   ├── tags.js                 # VALID_TAGS + displayTag() — vegan/vegetarisch UI-Labels
 │   ├── style.css
 │   └── views/
 │       ├── rezepte.js          # List, Detail, JSON-Editor (renderRezept{Liste,Detail,EditJson})
@@ -87,10 +88,13 @@ CREATE TABLE IF NOT EXISTS rezepte (
     quelle          TEXT,
     zubereitungszeit TEXT,
     daten           TEXT NOT NULL,  -- normalisierter JSON-Blob (EN-Keys)
+    tags            TEXT,           -- comma-wrapped (",vegan,vegetarian,") oder NULL
     erstellt_am     DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_titel ON rezepte(titel);
 CREATE INDEX IF NOT EXISTS idx_kategorie ON rezepte(kategorie);
+-- tags-Spalte wird nicht indiziert: SQLite kann LIKE '%pattern%' ohnehin nicht
+-- indexgestützt beantworten, und die Tabelle ist klein genug fürs Sequential-Scan.
 
 -- Geteilte aktuelle Einkaufsliste (Singleton — genau eine Zeile id=1)
 CREATE TABLE IF NOT EXISTS einkaufsliste_aktuell (
@@ -121,10 +125,17 @@ CREATE TABLE IF NOT EXISTS einkaufsliste_abgehakt (
 ```
 
 **Konvention**: `daten` enthält das vollständige Rezept-JSON mit EN-Keys.
-Die Spalten `titel`, `kategorie`, `quelle`, `zubereitungszeit` sind
+Die Spalten `titel`, `kategorie`, `quelle`, `zubereitungszeit`, `tags` sind
 **denormalisierte Spiegelfelder** für Suche/Filter/Listen-Performance.
 Bei jedem `INSERT` und `UPDATE` werden sie aus dem normalisierten JSON
 mitgeschrieben.
+
+**`tags`-Spalte**: speichert die kanonischen englischen Slugs aus dem
+JSON-`tags`-Array als comma-wrapped String, z.B. `,vegan,vegetarian,`.
+Empty Array wird zu `NULL`. Das Wrapping macht das Filter-LIKE
+eindeutig: `WHERE tags LIKE '%,vegan,%'` matched garantiert nur Items
+die `vegan` als ganzes Token haben, nicht z.B. ein fiktives `,vegano,`.
+Helpers in `translation.php`: `tags_to_column()` und `column_to_tags()`.
 
 ---
 
@@ -138,11 +149,12 @@ Kanonische Form (EN-Keys, in der DB so abgelegt):
   "category": "Pasta",
   "source": "Nonna Maria",
   "preparation_time": "30 Minuten",
+  "tags": ["vegetarian"],
   "ingredients": [
     {
       "group": "Hauptzutaten",
       "items": [
-        { "quantity": 100, "unit": "g", "name": "Spaghetti", "department": "Grundnahrungsmittel" }
+        { "quantity": 100, "unit": "g", "name": "Spaghetti", "department": "staple-foods" }
       ]
     }
   ],
@@ -152,6 +164,10 @@ Kanonische Form (EN-Keys, in der DB so abgelegt):
   "kitchen_equipment": [{ "quantity": 1, "name": "Topf" }]
 }
 ```
+
+**`tags`** ist optional. Erlaubte Werte: `vegan`, `vegetarian` (kanonisch
+englisch). Beim Upload werden deutsche Aliasse `vegetarisch`/`Vegan`/etc.
+automatisch übersetzt. Unbekannte Werte erzeugen einen `400`.
 
 **Mengen-Konvention** (geändert ggü. Spec): Mengen sind angegeben **pro 1 Person**.
 Skalierung im Frontend und in `einkaufsliste.php` multipliziert mit der
@@ -171,6 +187,7 @@ gewünschten Personenzahl direkt — kein `basis_personen`-Feld.
 | kategorie         | category           |
 | quelle            | source             |
 | zubereitungszeit  | preparation_time   |
+| etiketten         | tags               |
 | zutaten           | ingredients        |
 | gruppe            | group              |
 | menge             | quantity           |
@@ -268,6 +285,51 @@ damit nicht-migrierte Bestandsdaten korrekt gruppieren.
 `name+unit`-Key) in zwei Rezepten unterschiedliche Departments hat,
 gewinnt der erste nicht-leere Wert (first-seen).
 
+### 5.4 Tags (Diät-Etiketten)
+
+**Optionales Top-Level-Feld** `tags: []` im Rezept-JSON, dient zum
+Filtern in der Übersicht.
+
+**Sprach-Konvention** (gleich wie Departments): in der DB stehen
+**englische Slugs**, im UI werden sie **deutsch** angezeigt. Uploads/
+Edits mit deutschen Werten werden automatisch übersetzt.
+
+| Englisch (DB) | Deutsch (UI) | DE-Alias beim Upload |
+|---|---|---|
+| `vegan`        | Vegan         | `vegan`        |
+| `vegetarian`   | Vegetarisch   | `vegetarisch`  |
+
+**Vegan ⊂ Vegetarisch?** Bewusst nein — beide Tags sind unabhängige
+Marker. Wer ein veganes Rezept auch im „Vegetarisch"-Filter sehen
+möchte, taggt beides. Das vermeidet überraschende Filter-Semantik.
+
+**Speicher-Layout**:
+- JSON-Blob (`daten`) enthält `tags: ["vegan","vegetarian"]` (kanonische
+  EN-Slugs in `valid_tags()`-Reihenfolge, deduplicate)
+- DB-Spalte `tags` enthält denormalisiert den comma-wrapped String
+  (`,vegan,vegetarian,`) für effizientes `LIKE`-Filter
+- API-Antworten (List + Detail) liefern `tags` als flaches Array,
+  konvertiert via `column_to_tags()`
+
+**Filter-Endpoint**: `GET /api/rezepte.php?tag=vegan` (oder
+`?tag=vegetarisch`). Unbekannte Werte liefern leere Liste statt 400,
+weil der Filter primär für UI-Dropdowns gedacht ist.
+
+**Source of Truth**:
+- `api/translation.php`: `valid_tags()`, `german_to_english_tag()`,
+  `canonicalize_tag()`, `normalize_tags_in_recipe()`,
+  `tags_to_column()` / `column_to_tags()`
+- `assets/tags.js`: `VALID_TAGS`, `canonicalizeTag()`, `displayTag()` —
+  Frontend-Spiegel der Slugs und Labels
+- `translation_map.json`: `tags_de_to_en` / `tags_en_to_de` für Doku/Tools
+
+**Erweitern auf neue Tags**: PHP `valid_tags()` und
+`german_to_english_tag()` ergänzen, JS `VALID_TAGS` und
+`TAG_EN_TO_DE`/`TAG_DE_TO_EN` ergänzen, CSS-Klasse
+`.diet-<slug>` für Badge-Farbe hinzufügen, `translation_map.json`
+mit Eintrag versehen. `valid_tags()`-Reihenfolge bestimmt die
+Sortierung im JSON-Array.
+
 ---
 
 ## 6. API-Endpunkte
@@ -281,11 +343,12 @@ Liste aller Rezepte (ohne `daten`-Blob).
 Query-Parameter:
 - `?suche=<text>` — Volltextsuche auf `titel` (LIKE %x%)
 - `?kategorie=<text>` — exakter Kategorie-Filter
+- `?tag=<slug>` — Filter auf Diät-Tags (`vegan`, `vegetarian` oder DE-Alias `vegetarisch`). Unbekannte Werte liefern leere Liste.
 
 ```json
 [
   { "id": 1, "titel": "…", "kategorie": "…", "quelle": "…",
-    "zubereitungszeit": "…", "erstellt_am": "…" }
+    "zubereitungszeit": "…", "tags": ["vegan"], "erstellt_am": "…" }
 ]
 ```
 
@@ -296,8 +359,8 @@ Einzelnes Rezept inkl. komplettem `daten`-Blob (geparsed).
 ```json
 {
   "id": 1, "titel": "…", "kategorie": "…", "quelle": "…",
-  "zubereitungszeit": "…", "erstellt_am": "…",
-  "daten": { /* vollständiges Rezept-JSON, EN-Keys */ }
+  "zubereitungszeit": "…", "tags": ["vegan"], "erstellt_am": "…",
+  "daten": { /* vollständiges Rezept-JSON, EN-Keys, inkl. tags */ }
 }
 ```
 
@@ -763,9 +826,12 @@ das `pushState` macht und neu rendert. `popstate` wird gehört.
 
 ### Views
 
-**`renderRezeptListe`** — Karten-Grid mit Live-Suche (debounced 200 ms)
-und Kategorie-Filter. Kategorien werden beim ersten ungefilterten Load
-befüllt.
+**`renderRezeptListe`** — Karten-Grid mit Live-Suche (debounced 200 ms),
+Kategorie-Filter und **Tag-Filter** (Etiketten-Dropdown: Alle / Vegan
+/ Vegetarisch). Kategorien werden beim ersten ungefilterten Load
+befüllt (ungefiltert = ohne suche/kategorie/tag, damit eine spätere
+Tag-Auswahl die Kategorien-Liste nicht implizit kürzt). Karten zeigen
+neben Kategorie auch die Diät-Tags als farbige `.diet-tag`-Pillen.
 
 **`renderRezeptDetail`** — Vollansicht mit Personen-Spinner. Mengen
 werden im Frontend live skaliert. Buttons:
@@ -1009,7 +1075,11 @@ Wer die App im Internet (statt LAN) betreibt:
 - **Bilder pro Rezept** — neue Spalte + Upload-Endpunkt + Static-Serving
 - **Volltextsuche auch über Zutaten** — JSON1-Funktionen in SQLite
   (`json_extract(daten, '$.ingredients...')`)
-- **Tags / Mehrfach-Kategorien** — neue Tabelle `rezept_tags` (n:m)
+- **Erweiterung des Tag-Vokabulars** — z.B. `gluten-free`, `low-carb`,
+  `kid-friendly`. Schema steht (siehe Sektion 5.4), nur die Listen
+  ergänzen. Wenn die Tag-Anzahl > ~10 wird, lohnt sich die Umstellung
+  von der comma-wrapped Spalte auf eine normalisierte `rezept_tags`-
+  Tabelle (n:m) mit Index.
 - **Authentifizierung** — momentan steht alles offen, fürs LAN kein
   Problem, für Internet-Hosting Pflicht
 - **DE-Key für `items`** in `translation_map.json` ergänzen
@@ -1018,6 +1088,63 @@ Wer die App im Internet (statt LAN) betreibt:
 ---
 
 ## 12. Changelog
+
+### 2026-05-14 — Diät-Tags (vegan / vegetarisch) mit Filter
+
+Rezepte können jetzt mit `vegan` und/oder `vegetarian` getaggt werden,
+und die Übersicht filtert danach.
+
+- **Schema**: neues Top-Level-Feld `tags: []` im Recipe-JSON
+  (`recipe_template.json` aktualisiert). Kanonisch englische Slugs;
+  Backend akzeptiert deutsche Aliasse (`Vegan`, `Vegetarisch`) sowie
+  den DE-Key `etiketten`.
+- **DB**: neue Spalte `rezepte.tags` (TEXT, idempotente Migration in
+  `bootstrap.php`). Speichert comma-wrapped String `,vegan,vegetarian,`
+  zur eindeutigen LIKE-Filterung. Empty Array → NULL. Kein Index — die
+  Tabelle ist klein und `LIKE '%pattern%'` ist sowieso nicht
+  index-nutzbar.
+- **Validierung**: `translation.php` bekommt `valid_tags()`,
+  `canonicalize_tag()`, `normalize_tags_in_recipe()` und die Spalten-
+  Helpers `tags_to_column()` / `column_to_tags()`. Unbekannte Werte
+  werfen 400 mit „Tag-Fehler: Unbekannter Tag ..."-Meldung.
+- **API**:
+  - `GET /api/rezepte.php?tag=vegan` (oder `?tag=vegetarisch`) filtert
+    die Liste. Unbekannter Tag → leere Liste statt 400, weil der
+    Filter primär UI-getrieben ist.
+  - List- und Detail-Antworten liefern jetzt zusätzlich ein
+    `tags`-Array (denormalisiert aus der Spalte).
+  - PUT/POST/Import speichern die Spalte mit.
+- **Frontend**:
+  - Neues kleines Modul `assets/tags.js` (`VALID_TAGS`,
+    `canonicalizeTag()`, `displayTag()`).
+  - `rezept_form.js`: neuer Block „Etiketten" mit zwei Checkboxen
+    (Pillen-Styling, blendet bei `:checked` in die Accent-Farbe). Ein
+    Bestand-JSON mit deutschem `etiketten`-Key bzw. „Vegetarisch"-Wert
+    wird vom Backend übersetzt, also kommen die Checkboxen beim
+    Re-Open korrekt vorgehakt.
+  - `rezepte.js`: dritter Dropdown „Alle Etiketten / Vegan /
+    Vegetarisch" in der Toolbar, Tag-Badges auf den Karten und in
+    der Detail-Meta-Zeile. Eigene Farbpalette `.diet-vegan` (grün) /
+    `.diet-vegetarian` (hellgrün) zur Unterscheidung von der
+    Kategorie-Pille und dem Abteilungs-Chip.
+- **`translation_map.json`**: neuer Eintrag `etiketten` → `tags` in
+  `de_to_en`, plus `tags_de_to_en` / `tags_en_to_de` Sektionen.
+- **SW**: `CACHE_VERSION` v8 → v9, `tags.js` in `PRECACHE_PATHS`.
+- **Konvention**: `vegan` und `vegetarian` sind unabhängige Tags —
+  vegan impliziert NICHT automatisch vegetarian (siehe Sektion 5.4).
+  Wer beide Filter bedient haben will, taggt beide.
+
+Browser-Test bestand alle 7 Schritte: Checkboxen rendern,
+neues Rezept mit Tag wird gespeichert + Badge erscheint auf Detail
+und Karte, Filter zeigt nur passende Rezepte, Edit-Form lädt
+Tag-Status vorgehakt, zweiter Tag wird hinzugefügt und in DB
+persistiert.
+
+Aus Sektion 11 entfernt: „Tags / Mehrfach-Kategorien als n:m-Tabelle"
+— stattdessen die schlankere Implementierung. Neuer Eintrag: bei
+> ~10 Tags lohnt sich die Umstellung auf normalisierte Tabelle.
+
+---
 
 ### 2026-05-14 — Formular-basierter Rezept-Editor + UI-Neuanlage
 
