@@ -60,9 +60,11 @@ function require_authenticated_geraet(): array {
 }
 
 if ($method === 'GET' && $action === 'devices') {
-    // Auth required (oben durchgelaufen wenn nicht skip)
-    if (REQUIRE_AUTH_TOKEN) require_authenticated_geraet();
-    $stmt = $db->query('SELECT id, name, typ, erstellt_am, zuletzt_gesehen, aktiv FROM geraete ORDER BY id ASC');
+    if (REQUIRE_AUTH_TOKEN) {
+        require_authenticated_geraet();
+        require_device_management_access();
+    }
+    $stmt = $db->query('SELECT id, name, typ, erstellt_am, zuletzt_gesehen, aktiv, is_admin FROM geraete ORDER BY id ASC');
     $rows = $stmt->fetchAll();
     $current = current_geraet();
     $list = [];
@@ -74,6 +76,7 @@ if ($method === 'GET' && $action === 'devices') {
             'erstellt_am' => $r['erstellt_am'],
             'zuletzt_gesehen' => $r['zuletzt_gesehen'],
             'aktiv' => (int) $r['aktiv'] === 1,
+            'is_admin' => (int) ($r['is_admin'] ?? 0) === 1,
             'is_current' => $current && (int) $current['id'] === (int) $r['id'],
         ];
     }
@@ -81,7 +84,10 @@ if ($method === 'GET' && $action === 'devices') {
 }
 
 if ($method === 'POST' && $action === 'pair') {
-    if (REQUIRE_AUTH_TOKEN) require_authenticated_geraet();
+    if (REQUIRE_AUTH_TOKEN) {
+        require_authenticated_geraet();
+        require_device_management_access();
+    }
     $raw = file_get_contents('php://input') ?: '';
     try {
         $body = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
@@ -179,7 +185,10 @@ if ($method === 'POST' && $action === 'redeem-pair') {
 }
 
 if ($method === 'POST' && $action === 'revoke') {
-    if (REQUIRE_AUTH_TOKEN) require_authenticated_geraet();
+    if (REQUIRE_AUTH_TOKEN) {
+        require_authenticated_geraet();
+        require_device_management_access();
+    }
     $raw = file_get_contents('php://input') ?: '';
     try {
         $body = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
@@ -188,10 +197,48 @@ if ($method === 'POST' && $action === 'revoke') {
     }
     $id = (int) ($body['id'] ?? 0);
     if ($id <= 0) json_error('id erforderlich', 400);
+
+    // Ziel-Gerät lesen — brauchen wir um is_admin + ggf. last-admin-Schutz
+    // korrekt zu beurteilen.
+    $tgt = $db->prepare('SELECT id, aktiv, is_admin FROM geraete WHERE id = :id');
+    $tgt->execute([':id' => $id]);
+    $target = $tgt->fetch();
+    if (!$target) json_error('Gerät nicht gefunden', 404);
+
+    $current = current_geraet();
+    $isSelf = $current && (int) $current['id'] === (int) $target['id'];
+
+    // Sperre: wenn das Ziel der letzte aktive Admin wäre, würde die App
+    // sich selbst aussperren — nur über setup.php (mit File-System-Zugriff
+    // auf data/admin_setup_token.txt) wieder reinkommen. Das wollen wir
+    // nicht versehentlich erlauben. Bei DEVICE_MANAGEMENT_OPEN_TO_ALL=true
+    // ist das technisch kein Lockout (jedes Gerät darf weitermachen), aber
+    // der Admin-Status ist trotzdem ein wertvoller Recovery-Anker — gleicher
+    // Schutz, gleiche Begründung.
+    if (REQUIRE_AUTH_TOKEN && (int) ($target['is_admin'] ?? 0) === 1 && (int) $target['aktiv'] === 1) {
+        $stmt = $db->query('SELECT COUNT(*) FROM geraete WHERE is_admin = 1 AND aktiv = 1');
+        $activeAdmins = (int) $stmt->fetchColumn();
+        if ($activeAdmins <= 1) {
+            json_error('Das letzte aktive Admin-Gerät kann nicht widerrufen werden — die App wäre danach gesperrt. Erst ein weiteres Admin-Gerät anlegen (Setup-Token via SSH/SFTP).', 400);
+        }
+    }
+
     $stmt = $db->prepare('UPDATE geraete SET aktiv = 0 WHERE id = :id');
     $stmt->execute([':id' => $id]);
-    if ($stmt->rowCount() === 0) json_error('Gerät nicht gefunden', 404);
-    json_response(['ok' => true, 'id' => $id]);
+
+    // Bei Self-Revoke das eigene Session-Cookie clearen, damit das Frontend
+    // konsistent ausgeloggt ist. Bearer-Token-basierte Mobile-PWAs müssen
+    // ihren Token im localStorage selber clearen — der `self_revoked`-Flag
+    // unten ist der Trigger dafür.
+    if ($isSelf) {
+        clear_session_cookie();
+    }
+
+    json_response([
+        'ok' => true,
+        'id' => $id,
+        'self_revoked' => $isSelf,
+    ]);
 }
 
 if ($method === 'POST' && $action === 'logout') {

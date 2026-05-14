@@ -1,4 +1,5 @@
-import { api } from '../api.js';
+import { api, clearToken } from '../api.js';
+import { navigate } from '../app.js';
 
 function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, (c) => ({
@@ -40,17 +41,18 @@ export async function renderGeraete(root) {
                         </tr></thead>
                         <tbody>
                             ${devices.map(d => `
-                                <tr data-id="${d.id}">
+                                <tr data-id="${d.id}"${d.is_current ? ' data-self="1"' : ''}>
                                     <td>
                                         <strong>${escapeHtml(d.name)}</strong>
                                         ${d.is_current ? '<span class="tag">aktuelles Gerät</span>' : ''}
+                                        ${d.is_admin ? '<span class="tag" style="background:#ffe9c4;color:#7a5200;">Admin</span>' : ''}
                                         ${!d.aktiv ? '<span class="tag" style="background:#fee;color:#900;">widerrufen</span>' : ''}
                                     </td>
                                     <td>${escapeHtml(d.typ)}</td>
                                     <td class="muted small">${escapeHtml(d.zuletzt_gesehen || 'noch nie')}</td>
                                     <td>
-                                        ${d.aktiv && !d.is_current
-                                            ? '<button type="button" class="btn small danger revoke">🗑 Widerrufen</button>'
+                                        ${d.aktiv
+                                            ? `<button type="button" class="btn small danger revoke">🗑 ${d.is_current ? 'Eigenes Gerät widerrufen' : 'Widerrufen'}</button>`
                                             : ''}
                                     </td>
                                 </tr>
@@ -76,10 +78,28 @@ export async function renderGeraete(root) {
 
         root.querySelectorAll('tr[data-id] .revoke').forEach(btn => {
             btn.addEventListener('click', async () => {
-                const id = parseInt(btn.closest('tr').dataset.id, 10);
-                if (!confirm('Dieses Gerät widerrufen? Es kann sich danach nicht mehr verbinden, bis es neu gepaired wird.')) return;
+                const tr = btn.closest('tr');
+                const id = parseInt(tr.dataset.id, 10);
+                const isSelf = tr.dataset.self === '1';
+
+                const message = isSelf
+                    ? 'Dein EIGENES Gerät widerrufen? Du wirst direkt ausgeloggt und musst dich danach neu pairen (oder per Setup-Token wieder rein).\n\nWirklich fortfahren?'
+                    : 'Dieses Gerät widerrufen? Es kann sich danach nicht mehr verbinden, bis es neu gepaired wird.';
+                if (!confirm(message)) return;
+
                 try {
-                    await api.revokeDevice(id);
+                    const result = await api.revokeDevice(id);
+                    if (result?.self_revoked || isSelf) {
+                        // Server hat das Session-Cookie schon gecleared; wir
+                        // werfen noch den Bearer-Token im localStorage weg
+                        // (Mobile-PWA) und schicken zur Pair-Seite. Kein
+                        // weiteres draw() — die nächste API-Anfrage würde
+                        // ohnehin mit 401 zurückkommen.
+                        clearToken();
+                        alert('Eigenes Gerät widerrufen. Du wirst zur Pairing-Seite weitergeleitet.');
+                        navigate('/pair', true);
+                        return;
+                    }
                     await draw();
                 } catch (err) {
                     alert('Widerrufen fehlgeschlagen: ' + err.message);

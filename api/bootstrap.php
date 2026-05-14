@@ -172,9 +172,22 @@ $db->exec("
         typ TEXT NOT NULL DEFAULT 'mobile',
         erstellt_am DATETIME DEFAULT CURRENT_TIMESTAMP,
         zuletzt_gesehen DATETIME,
-        aktiv INTEGER NOT NULL DEFAULT 1
+        aktiv INTEGER NOT NULL DEFAULT 1,
+        is_admin INTEGER NOT NULL DEFAULT 0
     );
 ");
+
+// Idempotente Migration für Bestands-DBs: is_admin-Spalte nachziehen UND
+// alle bestehenden Geräte auf admin=1 setzen (sonst würden Live-Deployments
+// nach dem Update keinen Zugriff mehr auf die Geräteverwaltung haben — bis
+// jetzt durfte jedes auth'd Gerät dort hin). Neue Deployments mit leerer
+// geraete-Tabelle: Migration ist no-op, der erste Setup-Token erzeugt dann
+// das erste echte Admin-Gerät.
+$geraeteCols = $db->query("PRAGMA table_info(geraete)")->fetchAll(PDO::FETCH_COLUMN, 1);
+if (!in_array('is_admin', $geraeteCols, true)) {
+    $db->exec("ALTER TABLE geraete ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0");
+    $db->exec("UPDATE geraete SET is_admin = 1");
+}
 
 // Kurz-lebige Pairing-Codes für „neues Gerät koppeln". Web-UI generiert
 // einen Code, Mobile löst ihn ein und bekommt dafür den echten Token.
@@ -235,7 +248,7 @@ function current_geraet(): ?array {
     if ($token === null) return null;
 
     try {
-        $stmt = $db->prepare('SELECT id, name, typ, aktiv FROM geraete WHERE token_hash = :h LIMIT 1');
+        $stmt = $db->prepare('SELECT id, name, typ, aktiv, is_admin FROM geraete WHERE token_hash = :h LIMIT 1');
         $stmt->execute([':h' => hash_token($token)]);
         $row = $stmt->fetch();
         if (!$row || (int) $row['aktiv'] !== 1) return null;
@@ -304,5 +317,40 @@ function ensure_authenticated(): void {
 // Household-Modell weiter funktioniert. Wer die App ins Internet stellt,
 // aktiviert das nach Phase 6 (Setup-UI) auf true.
 const REQUIRE_AUTH_TOKEN = false;
+
+// Wenn true: jedes authentifizierte Gerät bekommt Zugriff auf die
+// Geräteverwaltung (Liste sehen, Pairing-Codes erzeugen, Geräte widerrufen).
+// Default: false → nur Geräte mit `is_admin=1` dürfen das. Das erste Gerät,
+// das via setup.php den Setup-Token einlöst, wird automatisch Admin; alle
+// per Pairing-Code hinzugefügten Geräte sind nicht Admin.
+const DEVICE_MANAGEMENT_OPEN_TO_ALL = false;
+
+/**
+ * Liefert true, wenn das aktuelle Gerät die Geräteverwaltung benutzen darf.
+ * Berechtigt sind:
+ *   - Geräte mit is_admin=1 (= via Setup-Token-Flow erstellte Admins), ODER
+ *   - jedes auth'd Gerät, wenn DEVICE_MANAGEMENT_OPEN_TO_ALL aktiv ist.
+ * Anonyme Requests bei aktivem REQUIRE_AUTH_TOKEN landen vorher schon im 401.
+ */
+function current_geraet_can_manage_devices(): bool {
+    if (!REQUIRE_AUTH_TOKEN) {
+        // Ohne Auth-Lock ist die App sowieso offen — Geräteverwaltung ergibt
+        // dann ohnehin nur theoretisch Sinn (es gibt keinen Setup-Flow), aber
+        // wir blockieren sie nicht zusätzlich.
+        return true;
+    }
+    $g = current_geraet();
+    if ($g === null) return false;
+    if (DEVICE_MANAGEMENT_OPEN_TO_ALL) return true;
+    return (int) ($g['is_admin'] ?? 0) === 1;
+}
+
+/** Stoppt mit 403, wenn das aktuelle Gerät die Geräteverwaltung nicht nutzen darf. */
+function require_device_management_access(): void {
+    if (current_geraet_can_manage_devices()) return;
+    http_response_code(403);
+    echo json_encode(['error' => 'Nur Admin-Geräte dürfen die Geräteverwaltung benutzen'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 ensure_authenticated();

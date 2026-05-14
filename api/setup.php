@@ -54,6 +54,7 @@ if ($method === 'GET' && ($action === '' || $action === 'status')) {
         'has_admin' => has_admin($db),
         'setup_token_pending' => read_setup_token_file() !== null,
         'is_authenticated' => current_geraet() !== null,
+        'can_manage_devices' => current_geraet_can_manage_devices(),
     ]);
 }
 
@@ -99,10 +100,11 @@ if ($method === 'POST' && $action === 'redeem-setup') {
     }
 
     // Neuen, echten Web-Admin-Token generieren, in DB ablegen, als Cookie setzen.
+    // Setup-Token-Einlösung ist der einzige Pfad, der is_admin=1 schreibt.
     $deviceToken = bin2hex(random_bytes(32));
     $stmt = $db->prepare("
-        INSERT INTO geraete (token_hash, name, typ)
-        VALUES (:h, :name, 'web')
+        INSERT INTO geraete (token_hash, name, typ, is_admin)
+        VALUES (:h, :name, 'web', 1)
     ");
     $stmt->execute([
         ':h' => hash_token($deviceToken),

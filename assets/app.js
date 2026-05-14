@@ -268,9 +268,10 @@ onTokenInvalid(() => {
     }
 
     if (authStatus && authStatus.require_auth) {
-        // Geräte-Link nur einblenden wenn Auth aktiv UND wir auth'd sind
+        // Geräte-Link nur einblenden wenn der aktuelle Aufrufer auch die
+        // Geräteverwaltung benutzen darf (Admin oder offene Konstante).
         const navLink = document.querySelector('.nav-geraete');
-        if (navLink) navLink.hidden = !authStatus.is_authenticated;
+        if (navLink) navLink.hidden = !authStatus.can_manage_devices;
 
         const path = getRoutePath();
         if (!authStatus.has_admin) {

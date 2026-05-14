@@ -1089,6 +1089,50 @@ Wer die App im Internet (statt LAN) betreibt:
 
 ## 12. Changelog
 
+### 2026-05-14 — Admin-Rolle für Geräteverwaltung + Self-Revoke
+
+Bisher durfte jedes auth'd Gerät die Geräteverwaltung (`/geraete`)
+nutzen, und Self-Revoke war explizit blockiert. Jetzt:
+
+- **Admin-Rolle**: neue Spalte `geraete.is_admin` (Default `0`).
+  Setup-Token-Einlösung (`setup.php?action=redeem-setup`) ist der
+  einzige Pfad der `is_admin=1` setzt. Pair-Code-eingelöste Geräte
+  bleiben Nicht-Admin.
+- **Backfill für Bestandsdeployments**: bei der idempotenten Migration
+  werden alle bereits vorhandenen Geräte einmal auf `is_admin=1`
+  gesetzt — sonst würden Live-Installationen nach dem Update den
+  Zugriff auf die Geräteverwaltung verlieren. Frische Deployments
+  haben eine leere Tabelle, da ist es no-op.
+- **Konstante `DEVICE_MANAGEMENT_OPEN_TO_ALL`** in `bootstrap.php`
+  (Default: `false`). Bei `true` darf jedes auth'd Gerät die
+  Geräteverwaltung benutzen, nicht nur Admins.
+- **Backend-Gate**: neue Helper `current_geraet_can_manage_devices()`
+  und `require_device_management_access()`. Anwendung in `auth.php`
+  auf `?action=devices`, `?action=pair` und `?action=revoke`.
+  Statusendpunkt liefert jetzt `can_manage_devices` mit, damit das
+  Frontend den Nav-Link gaten kann.
+- **Self-Revoke**: das `aktiv && !is_current`-Gate im UI entfällt.
+  Klick auf den Widerrufen-Button am eigenen Gerät zeigt einen
+  stärkeren Confirm; Server cleared das Session-Cookie und gibt
+  `self_revoked: true` zurück; Client wirft den Bearer-Token im
+  localStorage weg und navigiert zur `/pair`-Seite.
+- **Lockout-Schutz**: revoke verweigert die Aktion, wenn das Ziel
+  der letzte aktive Admin wäre — sonst kommt man nur noch über
+  den Setup-Token (= SSH-Zugriff auf den Server) wieder rein.
+  Greift in beiden Konstanten-Modi gleich.
+- **UI-Markierungen**: Admin-Geräte bekommen ein gelbes „Admin"-Tag
+  in der Liste, Self-Button hat eigene Beschriftung
+  „Eigenes Gerät widerrufen".
+
+`assets/app.js` Auth-Gate: der `/geraete`-Nav-Link wird über
+`authStatus.can_manage_devices` statt `is_authenticated` gesteuert
+— Nicht-Admins (bei `DEVICE_MANAGEMENT_OPEN_TO_ALL=false`) sehen
+ihn also nicht.
+
+`SW CACHE_VERSION` v13 → v14.
+
+---
+
 ### 2026-05-14 — Pairing-Code Lebensdauer auf 15 Minuten erhöht
 
 `PAIR_CODE_TTL_SECONDS` in `api/auth.php` von 300 (5 min) auf 900
