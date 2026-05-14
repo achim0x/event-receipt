@@ -447,13 +447,26 @@ textarea#editor {
 .custom-items-list li {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: 0.5rem;
     padding: 0.4rem 0;
     border-bottom: 1px dashed var(--border);
 }
 .custom-items-list li:last-child { border-bottom: none; }
+.custom-item-check {
+    display: inline-flex;
+    align-items: center;
+}
+.custom-item-check input[type=checkbox] {
+    width: 1.1rem;
+    height: 1.1rem;
+    cursor: pointer;
+}
 .custom-item-text { flex: 1; }
+/* Wenn das Häkchen gesetzt ist, durchstreichen */
+.custom-items-list li:has(.custom-item-check input:checked) .custom-item-text {
+    text-decoration: line-through;
+    opacity: 0.55;
+}
 
 .save-as-row .save-as-hint {
     flex-basis: 100%;

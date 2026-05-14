@@ -1,6 +1,7 @@
 import { APP_BASE } from './config.js';
 import { api, onTokenInvalid, getToken } from './api.js';
 import * as checksQueue from './checks_queue.js';
+import { normalizeQuantityUnit } from './units.js';
 import { renderRezeptListe, renderRezeptDetail } from './views/rezepte.js';
 import { renderRezeptFormEdit, renderRezeptFormNew } from './views/rezept_form.js';
 import { renderUpload } from './views/upload.js';
@@ -170,9 +171,17 @@ export const cart = {
     customItems: () => cartState.customItems.slice(),
     /** Eine neue freie Zutat anhängen (kein Dedup — der Aggregator gruppiert ohnehin). */
     addCustomItem(item) {
+        // Vor dem Pushen Einheit kanonisieren (gleich wie der Server beim
+        // PUT). Sonst läuft der Check-Key (= name||unit) auseinander wenn
+        // der User „Stück" tippt: Server speichert „Pcs", aber lokaler
+        // Render würde noch eine Weile mit „Stück" arbeiten — Häkchen
+        // gehen verloren beim nächsten Reload.
+        const rawQty = Number.isFinite(item?.quantity) ? Number(item.quantity) : 0;
+        const rawUnit = String(item?.unit ?? '').trim();
+        const { quantity, unit } = normalizeQuantityUnit(rawQty, rawUnit);
         cartState.customItems.push({
-            quantity: Number.isFinite(item?.quantity) ? Number(item.quantity) : 0,
-            unit: String(item?.unit ?? '').trim(),
+            quantity,
+            unit,
             name: String(item?.name ?? '').trim(),
             department: String(item?.department ?? '').trim() || undefined,
         });

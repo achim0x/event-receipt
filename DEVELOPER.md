@@ -1112,6 +1112,44 @@ Wer die App im Internet (statt LAN) betreibt:
 
 ## 12. Changelog
 
+### 2026-05-14 — Häkchen für freie Zutaten + geteilter Check-State
+
+Die „Eigene Zutaten"-Sektion bekommt eigene Checkboxen. Häkchen
+schlagen automatisch in die aggregierte Zutatenliste durch und
+umgekehrt — beide Views teilen sich den gleichen Server-side
+gespeicherten Check-Key `name||unit` (kategorie = `zutaten`).
+
+- **wireCheckboxes** mutiert das übergebene Set jetzt in-place beim
+  Toggle. Damit kann ein View-scoped Set (`checkSets`) als Single
+  Source of Truth zwischen mehreren parallel sichtbaren Views
+  dienen.
+- **`renderEinkaufsliste`** initialisiert `checkSets =
+  {zutaten, gewuerze, equipment}` einmal via `refreshChecks()` und
+  hängt es dann an jede Render-Stelle. `generateZutaten` /
+  `generateGewuerze` / `generateEquipment` fetchen die Checks
+  nicht mehr eigenständig — der Cache reicht. Spart die zusätzlichen
+  GETs und stellt sicher dass die Sets konsistent sind.
+- **resetChecksFor** clearet sein lokales Set zusätzlich zum
+  Server-Reset und unchecked die Custom-Items-Checkboxen direkt im
+  DOM (ohne `draw()`, weil die aggregierte View im `#ergebnis`-
+  Bereich gerade frisch gerendert wurde und nicht weggepustet
+  werden soll).
+- **`renderCustomItemsSection`** emittiert pro Zeile eine
+  `<input type=checkbox data-kategorie="zutaten" data-schluessel="…">`
+  vor dem Item-Text; CSS streicht abgehakte Einträge durch
+  (`text-decoration: line-through`).
+- **Clientside Einheiten-Normalisierung** (`assets/units.js
+  ::normalizeQuantityUnit`) spiegelt jetzt das Server-Pendant aus
+  `api/translation.php::unit_normalization_map()`. Das war nötig
+  damit der Check-Key (= `name||unit`) lokal und server-seitig
+  übereinstimmt — sonst gehen Häkchen beim Page-Reload verloren
+  (lokal: „Stück", Server: „Pcs" → unterschiedlicher Key).
+  `cart.addCustomItem` ruft das beim Speichern auf.
+
+`SW CACHE_VERSION` v19 → v20.
+
+---
+
 ### 2026-05-14 — Freie Zutaten auf der Einkaufsliste
 
 Neuer eigenständiger Abschnitt „Eigene Zutaten" auf der

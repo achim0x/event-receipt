@@ -73,9 +73,12 @@ function checkKey(name, unit = '') {
 }
 
 /**
- * Hängt ein Set von checked-keys (z.B. ['mehl||g']) an einen Container
- * mit `<input type="checkbox" data-kategorie="..." data-schluessel="...">`
- * Elementen — setzt initial checked und verdrahtet den Toggle-Handler.
+ * Hängt ein **mutables** Set von checked-keys (z.B. ['mehl||g']) an einen
+ * Container mit `<input type="checkbox" data-kategorie="..." data-schluessel="...">`
+ * Elementen — setzt initial checked und verdrahtet den Toggle-Handler. Beim
+ * Toggle wird das Set in-place gemutet, damit andere Views (z.B. die
+ * „Eigene Zutaten"-Sektion und die aggregierte Zutatenliste) die gleiche
+ * Source of Truth teilen, ohne extra zu re-fetchen.
  */
 function wireCheckboxes(container, checkedSet) {
     container.querySelectorAll('input[type=checkbox][data-schluessel]').forEach(cb => {
@@ -84,6 +87,10 @@ function wireCheckboxes(container, checkedSet) {
         if (checkedSet.has(schluessel)) cb.checked = true;
 
         cb.addEventListener('change', async () => {
+            // Lokal sofort updaten — beim nächsten draw() sieht jede andere View
+            // dieser Page das richtige Häkchen, ohne erneut den Server zu fragen.
+            if (cb.checked) checkedSet.add(schluessel); else checkedSet.delete(schluessel);
+
             // Erst in die IDB-Queue (persistent über Reloads, überlebt Offline).
             // Online wird sofort geflusht; offline bleibt's drin bis zum nächsten
             // online-Event (siehe app.js).
@@ -109,6 +116,28 @@ export async function renderEinkaufsliste(root) {
     // Server-State frisch holen — sonst sieht man Änderungen anderer User nicht
     await cart.refresh();
     await refreshSavedLists();
+
+    // View-scoped Cache der Häkchen-Sets. Die drei Sets sind die Source of
+    // Truth für alle Views auf dieser Seite (Custom-Items-Sektion +
+    // aggregierte Zutaten/Gewürze/Equipment). wireCheckboxes() mutiert sie
+    // in-place beim Toggle, draw() seedet daraus die Custom-Items-Checkboxen.
+    let checkSets = {
+        zutaten: new Set(),
+        gewuerze: new Set(),
+        equipment: new Set(),
+    };
+    async function refreshChecks() {
+        // safeGetChecks ist eine Function-Declaration weiter unten — durch
+        // Hoisting hier schon aufrufbar. Mergt Server-Stand + lokale
+        // IDB-Queue (siehe Helper-Doku).
+        const raw = await safeGetChecks();
+        checkSets = {
+            zutaten: new Set(raw.zutaten || []),
+            gewuerze: new Set(raw.gewuerze || []),
+            equipment: new Set(raw.equipment || []),
+        };
+    }
+    await refreshChecks();
 
     // Hinweis für den User wenn nicht alle Cart-Rezepte geladen werden
     // konnten (typisch: offline, Rezept noch nicht im Service-Worker-Cache).
@@ -185,7 +214,13 @@ export async function renderEinkaufsliste(root) {
                 const u = displayUnit(it.unit);
                 const parts = [q, u].filter(Boolean).join(' ');
                 const deptLabel = it.department ? displayDepartment(it.department) : '';
+                // Schlüssel teilt sich den Namespace mit der aggregierten Zutaten-
+                // Liste — Häkchen hier und dort sind dasselbe Häkchen.
+                const key = checkKey(it.name, it.unit);
                 return `<li data-idx="${idx}">
+                    <label class="custom-item-check">
+                        <input type="checkbox" data-kategorie="zutaten" data-schluessel="${escapeHtml(key)}">
+                    </label>
                     <span class="custom-item-text">
                         ${parts ? `<strong>${escapeHtml(parts)}</strong> ` : ''}${escapeHtml(it.name)}
                         ${deptLabel ? `<span class="dept-tag">${escapeHtml(deptLabel)}</span>` : ''}
@@ -360,6 +395,12 @@ export async function renderEinkaufsliste(root) {
             });
         }
 
+        // Checkboxes in der Eigene-Zutaten-Liste mit dem geteilten zutaten-Set
+        // verdrahten. wireCheckboxes mutiert das Set in-place — beim nächsten
+        // generateZutaten() spiegelt die aggregierte Liste den gleichen Stand.
+        const customList = root.querySelector('.custom-items-list');
+        if (customList) wireCheckboxes(customList, checkSets.zutaten);
+
         // Wenn nur freie Zutaten existieren, zeigt der Header nur den
         // Zutaten-Button und den Cleared-Status. Verdrahten was vorhanden ist.
         const zutatenBtn = root.querySelector('#show-zutaten');
@@ -489,10 +530,7 @@ export async function renderEinkaufsliste(root) {
             // Aggregation passiert client-seitig — bei aktivem Snapshot ohne
             // jeglichen API-Call, sonst nur die per-Rezept-GETs via
             // loadCartRecipes() (im Browser cache-fähig für Offline-Modus).
-            const [recipes, checks] = await Promise.all([
-                loadRecipes(),
-                safeGetChecks(),
-            ]);
+            const recipes = await loadRecipes();
 
             // Freie Zutaten als synthetisches Rezept (personen=1) einfüttern.
             // aggregateIngredients gruppiert dann automatisch nach Department
@@ -507,7 +545,10 @@ export async function renderEinkaufsliste(root) {
                 : recipes;
 
             const { liste } = aggregateIngredients(recipesForAgg);
-            const checkedSet = new Set(checks.zutaten || []);
+            // checkSets ist der View-scoped Cache; wireCheckboxes mutiert das
+            // gleiche Set wenn der User hier toggelt → in der Custom-Items-
+            // Sektion ist das Häkchen beim nächsten draw() auch sofort gesetzt.
+            const checkedSet = checkSets.zutaten;
             const warning = offlineCoverageWarning(recipes);
 
             if (!liste.length) {
@@ -558,9 +599,9 @@ export async function renderEinkaufsliste(root) {
         const ergebnis = root.querySelector('#ergebnis');
         ergebnis.innerHTML = `<p class="muted">Lade Rezepte…</p>`;
         try {
-            const [recipes, checks] = await Promise.all([loadRecipes(), safeGetChecks()]);
+            const recipes = await loadRecipes();
             const spices = aggregateSpices(recipes);
-            const checkedSet = new Set(checks.gewuerze || []);
+            const checkedSet = checkSets.gewuerze;
             const warning = offlineCoverageWarning(recipes);
 
             if (!spices.length) {
@@ -600,9 +641,9 @@ export async function renderEinkaufsliste(root) {
         const ergebnis = root.querySelector('#ergebnis');
         ergebnis.innerHTML = `<p class="muted">Lade Rezepte…</p>`;
         try {
-            const [recipes, checks] = await Promise.all([loadRecipes(), safeGetChecks()]);
+            const recipes = await loadRecipes();
             const equipment = aggregateEquipment(recipes);
-            const checkedSet = new Set(checks.equipment || []);
+            const checkedSet = checkSets.equipment;
             const warning = offlineCoverageWarning(recipes);
 
             if (!equipment.length) {
@@ -645,11 +686,20 @@ export async function renderEinkaufsliste(root) {
 
     /** Server-seitig alle Häkchen einer Kategorie löschen und View neu rendern.
      *  Lokale pending-Queue komplett leeren, damit ausstehende Mutationen
-     *  den DELETE nicht direkt wieder überschreiben. */
+     *  den DELETE nicht direkt wieder überschreiben. Lokal cachedes Set
+     *  (checkSets[kategorie]) auch leeren, damit die Custom-Items-Sektion
+     *  beim nächsten draw() konsistente Häkchen zeigt. */
     async function resetChecksFor(kategorie, regenerate) {
         try {
             await api.clearChecks(kategorie);
             try { await checksQueue.clearAll(); } catch (err) { console.warn('Queue-Clear failed:', err); }
+            // Lokaler Cache leeren, plus Checkboxen außerhalb des
+            // #ergebnis-Bereichs (Custom-Items-Sektion) visuell unchecken —
+            // wir wollen die aggregierte View NICHT komplett neu malen, weil
+            // der User noch drauf schaut.
+            checkSets[kategorie] = new Set();
+            root.querySelectorAll(`.custom-items-list input[type=checkbox][data-kategorie="${kategorie}"]`)
+                .forEach(cb => { cb.checked = false; });
             await regenerate();
         } catch (err) {
             alert('Häkchen zurücksetzen fehlgeschlagen: ' + err.message);
