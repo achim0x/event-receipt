@@ -360,4 +360,11 @@ That removes everything including the SQLite database.
 
 ## License
 
-(Add your license here.)
+This project is licensed under the **GNU General Public License v3.0**
+(GPL-3.0). See the [LICENSE](LICENSE) file for the full text.
+
+In short: you are free to use, study, modify, and redistribute this
+software, but any derivative work you distribute must also be released
+under the GPL-3.0 and must include the source. There is no warranty.
+
+Source repository: <https://github.com/achim0x/event-receipt>

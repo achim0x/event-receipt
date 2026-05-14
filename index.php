@@ -48,7 +48,12 @@ $base = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\') . '/';
     <main id="app" class="container"></main>
 
     <footer class="app-footer">
-        <div class="container">Rezept-Datenbank · SQLite + PHP · Vanilla JS</div>
+        <div class="container">
+            Rezept-Datenbank · SQLite + PHP · Vanilla JS<br>
+            <a href="https://www.gnu.org/licenses/gpl-3.0.html" rel="license noopener noreferrer" target="_blank">GPL-3.0</a>
+            ·
+            <a href="https://github.com/achim0x/event-receipt" target="_blank" rel="noopener noreferrer">GitHub</a>
+        </div>
     </footer>
 
     <script type="module" src="assets/app.js"></script>
