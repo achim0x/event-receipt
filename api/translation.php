@@ -129,36 +129,72 @@ function normalize_single_unit(float $quantity, string $unit): ?array {
 
 /**
  * Erlaubte Abteilungen (Departments) in kanonischer Schreibweise.
- * Reihenfolge ist relevant — wird in einkaufsliste.php fürs Sortieren genutzt.
+ * Ab Mai 2026 sind das englische Slugs — sie werden so in der DB gespeichert.
+ * Die UI übersetzt sie über `assets/aggregate.js::displayDepartment` ins
+ * Deutsche zurück. Reihenfolge ist relevant — wird in einkaufsliste.php
+ * fürs Sortieren genutzt.
  */
 function valid_departments(): array {
     return [
-        'Obst/Gemüse',
-        'Frische Theke',
-        'Non-Food',
-        'Getränke',
-        'Backen',
-        'Grundnahrungsmittel',
+        'fruit/vegetables',
+        'fresh-counter',
+        'non-food',
+        'drinks',
+        'baking',
+        'staple-foods',
     ];
 }
 
 /**
- * Normalisiert eine eingehende Department-Angabe auf die kanonische Schreibweise.
- * Match ist case-insensitiv. Gibt null zurück wenn unbekannt.
- * Leere/whitespace-only Eingabe → ['' (leer), true] (gültig, kein Department).
+ * DE→EN-Mapping. Wird bei Upload/PUT verwendet um deutsche Werte aus
+ * Bestandsdaten und händisch geschriebenen JSON-Files automatisch in die
+ * kanonische englische Form zu übersetzen.
  */
-function normalize_single_department(string $dept): ?string {
-    $dept = trim($dept);
-    if ($dept === '') return '';
+function german_to_english_department(): array {
+    return [
+        'Obst/Gemüse'         => 'fruit/vegetables',
+        'Frische Theke'       => 'fresh-counter',
+        'Non-Food'            => 'non-food',
+        'Getränke'            => 'drinks',
+        'Backen'              => 'baking',
+        'Grundnahrungsmittel' => 'staple-foods',
+    ];
+}
 
+/**
+ * Akzeptiert deutsche ODER englische Department-Schreibweise (case-insensitiv)
+ * und gibt immer die englische kanonische Form zurück. Leerer Wert → ''. Wenn
+ * weder ein bekannter englischer Slug noch ein deutscher Alias gefunden wird,
+ * wird null zurückgegeben (= Validierungsfehler beim Upload, oder Fallback
+ * auf „other" bei nicht-strikter Aggregation).
+ */
+function canonicalize_department(string $value): ?string {
+    $value = trim($value);
+    if ($value === '') return '';
+
+    // Englisch direkt (kanonisch oder anders kapitalisiert)
     $canonical = valid_departments();
-    if (in_array($dept, $canonical, true)) return $dept;
-
-    $lower = strtolower($dept);
+    if (in_array($value, $canonical, true)) return $value;
+    $lower = strtolower($value);
     foreach ($canonical as $c) {
         if (strtolower($c) === $lower) return $c;
     }
+
+    // Deutsch
+    $de2en = german_to_english_department();
+    if (isset($de2en[$value])) return $de2en[$value];
+    foreach ($de2en as $de => $en) {
+        if (strtolower($de) === $lower) return $en;
+    }
     return null;
+}
+
+/**
+ * @deprecated zugunsten canonicalize_department() — bleibt als Alias erhalten
+ * für ggf. externe Konsumenten.
+ */
+function normalize_single_department(string $dept): ?string {
+    return canonicalize_department($dept);
 }
 
 /**

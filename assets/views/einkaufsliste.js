@@ -2,7 +2,7 @@ import { api } from '../api.js';
 import { cart } from '../app.js';
 import { displayUnit } from '../units.js';
 import { renderRezeptHtml, downloadRecipesAsText, loadCartRecipes } from './rezepte_print.js';
-import { aggregateIngredients, aggregateSpices, aggregateEquipment } from '../aggregate.js';
+import { aggregateIngredients, aggregateSpices, aggregateEquipment, displayDepartment } from '../aggregate.js';
 import * as checksQueue from '../checks_queue.js';
 
 function escapeHtml(s) {
@@ -43,7 +43,7 @@ async function copyText(text) {
 function listToText(liste) {
     const lines = [];
     for (const grp of liste) {
-        if (grp.group) lines.push(`# ${grp.group}`);
+        if (grp.group) lines.push(`# ${displayDepartment(grp.group)}`);
         for (const it of grp.items) {
             const q = formatQuantity(it.quantity);
             const u = displayUnit(it.unit);
@@ -411,7 +411,7 @@ export async function renderEinkaufsliste(root) {
                     <h2>Zutaten (skaliert &amp; aggregiert)</h2>
                     ${warning}
                     ${liste.map(grp => `
-                        ${grp.group ? `<h3>${escapeHtml(grp.group)}</h3>` : ''}
+                        ${grp.group ? `<h3>${escapeHtml(displayDepartment(grp.group))}</h3>` : ''}
                         <ul>
                             ${grp.items.map(it => {
                                 const u = displayUnit(it.unit);

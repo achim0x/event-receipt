@@ -226,37 +226,46 @@ angezeigt. Die DB hält immer die kanonische EN-Form.
 ### 5.3 Abteilungen (Department)
 
 **Optionales Feld** auf jedem Ingredient-Item, dient nur dem Gruppieren
-der Einkaufsliste. Wenn nicht gesetzt → in der Einkaufsliste unter
-„Sonstiges" einsortiert.
+der Einkaufsliste. Wenn nicht gesetzt → unter „Sonstiges" einsortiert.
 
-**Erlaubte kanonische Werte** (case-insensitiv erkannt, beim Save in
-kanonische Schreibweise normalisiert):
+**Sprach-Konvention** (ab Mai 2026): in der DB stehen **englische
+Slugs**, im UI werden sie **deutsch** angezeigt. Uploads/Edits mit
+deutscher Schreibweise werden automatisch übersetzt.
 
-| Wert |
-|---|
-| `Obst/Gemüse` |
-| `Frische Theke` |
-| `Non-Food` |
-| `Getränke` |
-| `Backen` |
-| `Grundnahrungsmittel` |
+| Englisch (DB) | Deutsch (UI) |
+|---|---|
+| `fruit/vegetables`  | Obst/Gemüse |
+| `fresh-counter`     | Frische Theke |
+| `non-food`          | Non-Food |
+| `drinks`            | Getränke |
+| `baking`            | Backen |
+| `staple-foods`      | Grundnahrungsmittel |
+| `other` *(implizit)* | Sonstiges *(Fallback für leeres/unbekanntes Department)* |
 
-Unbekannte Werte ⇒ HTTP 400 mit `{"error": "Abteilungs-Fehler: Unbekannte Abteilung \"X\" bei Zutat \"Y\". Erlaubt: \"...\""}`.
+Unbekannte Werte (weder im EN- noch im DE-Mapping) → HTTP 400
+`{"error": "Abteilungs-Fehler: Unbekannte Abteilung \"X\" bei Zutat \"Y\"..."}`
+beim Upload/PUT. Im Aggregations-Pfad (`einkaufsliste.php` /
+`aggregate.js`) werden unbekannte Werte tolerant in den Sonstiges-
+Bucket einsortiert — damit alte JSON-Files weiterhin rendern.
 
-**Source of Truth** für die Liste: `valid_departments()` in
-`api/translation.php`. Erweitern: Konstante anpassen — danach
-funktioniert es überall (Validation, Aggregation-Sort-Reihenfolge).
+**Source of Truth**:
+- `api/translation.php`: `valid_departments()` (englische Slugs in
+  Sortier-Reihenfolge) + `german_to_english_department()` (DE→EN-Map)
+  + `canonicalize_department($value)` als zentrale Normalisierung
+- `assets/aggregate.js`: parallel mit JS-Mapping `DEPARTMENT_DE_TO_EN`
+  / `DEPARTMENT_EN_TO_DE` plus `canonicalizeDepartment()` und
+  `displayDepartment()` als Exports
+- `translation_map.json`: `departments_de_to_en` / `departments_en_to_de`
+  spiegelt die Mappings für Doku/Tools
 
-**Anzeige**: Die Einkaufslisten-Aggregation gruppiert nach Department.
-Reihenfolge im Output entspricht der Listen-Reihenfolge oben
-(`valid_departments()`), gefolgt von „Sonstiges" am Ende. Wenn ein
-Department keine Zutaten enthält, wird es weggelassen.
+**Migration**: Bestandsrezepte mit deutschen Werten werden bei jedem
+Upload und PUT (über `normalize_recipe_strict`) automatisch in die
+englische Form umgeschrieben. Aggregation toleriert beide Sprachen,
+damit nicht-migrierte Bestandsdaten korrekt gruppieren.
 
 **Konflikte beim Aggregieren**: Wenn dieselbe Zutat (gleicher
 `name+unit`-Key) in zwei Rezepten unterschiedliche Departments hat,
-gewinnt der erste nicht-leere Wert (first-seen). Praktisch sollte
-das selten vorkommen — User pflegt Department-Klassifikation
-konsistent.
+gewinnt der erste nicht-leere Wert (first-seen).
 
 ---
 
@@ -1014,6 +1023,43 @@ Wer die App im Internet (statt LAN) betreibt:
 - `mb_strtolower`-Fallback auf `strtolower` in `einkaufsliste.php`
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
+
+### 2026-05-12 — Departments auf englische Slugs umgestellt
+
+Bisher standen Department-Werte in deutscher Schreibweise in der DB
+(„Obst/Gemüse" usw.). Ab jetzt ist die kanonische Form englisch
+(`fruit/vegetables`, `fresh-counter`, `non-food`, `drinks`, `baking`,
+`staple-foods`); die UI übersetzt das beim Render zurück.
+
+Motivation: ein Sprach-Wechsel der UI (oder mehrsprachige Clients) wäre
+mit deutschen Slugs in der DB sperrig. Englische Slugs sind sprach-
+neutral und URL-/ID-freundlich.
+
+Änderungen:
+- `valid_departments()` in `translation.php` liefert englische Werte.
+- Neue Mapping-Tabelle `german_to_english_department()` plus
+  zentrale `canonicalize_department(string)`-Funktion, die DE und EN
+  case-insensitiv akzeptiert und immer englisch zurückgibt.
+- `normalize_departments_in_recipe()` läuft beim Upload/PUT durch —
+  Bestandsdaten mit deutschen Werten werden automatisch migriert.
+- `einkaufsliste.php` ruft `canonicalize_department()` beim
+  Aggregieren auf, damit ungepflegt-deutsche Bestandsdaten und
+  englische Neuanlagen im selben Bucket landen.
+- `aggregate.js` exportiert `canonicalizeDepartment()` und
+  `displayDepartment()`. Sonstiges-Bucket wird jetzt mit dem Slug
+  `other` markiert (statt deutscher String).
+- `einkaufsliste.js` und `upload.js` rendern `displayDepartment(slug)`
+  statt rohem String, damit die UI weiterhin deutsch ist.
+- `translation_map.json`: neue Sektionen `departments_de_to_en` /
+  `departments_en_to_de` zur Dokumentation.
+- `CACHE_VERSION` → v7.
+
+**Migration**: passiert inkrementell. Solange ein Rezept nicht
+editiert oder neu hochgeladen wurde, bleibt es in deutscher
+Schreibweise — die Aggregation glättet das beim Anzeigen. Wer alle
+auf einmal umstellen will, kann `php scripts/migrate-departments.php`
+nach Bedarf nachrüsten (bisher nicht geschrieben — bei Bedarf
+nachlegen).
 
 ### 2026-05-12 — Auth-Gate-Bugfix: anonyme Requests werden umgeleitet
 

@@ -1,6 +1,7 @@
 import { api } from '../api.js';
 import { navigate } from '../app.js';
 import { displayUnit } from '../units.js';
+import { displayDepartment } from '../aggregate.js';
 
 function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, (c) => ({
@@ -143,7 +144,7 @@ export function renderUpload(root) {
             <ul class="zutaten">
                 ${(g.items || []).map(it => {
                     const u = displayUnit(it.unit);
-                    const dept = it.department ? ` <span class="dept-tag">${escapeHtml(it.department)}</span>` : '';
+                    const dept = it.department ? ` <span class="dept-tag">${escapeHtml(displayDepartment(it.department))}</span>` : '';
                     return `<li><strong>${escapeHtml(formatQuantity(it.quantity))}${u ? ' ' + escapeHtml(u) : ''}</strong> ${escapeHtml(it.name || '')}${dept}</li>`;
                 }).join('')}
             </ul>

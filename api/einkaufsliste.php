@@ -99,7 +99,12 @@ foreach ($ids as $id) {
             $lowerUnit = function_exists('mb_strtolower') ? mb_strtolower($unit) : strtolower($unit);
             $key = $lowerName . '||' . $lowerUnit;
 
-            $department = trim((string) ($item['department'] ?? ''));
+            // Department-Werte aus den Recipes können noch deutsche Schreibweise
+            // sein (vor Mai 2026). Canonicalize gegen die DE→EN-Mapping-Tabelle,
+            // damit alte Bestandsdaten und neue Daten im selben Bucket landen.
+            // Unbekannte/ungültige Werte → leerer String (= Sonstiges-Fallback).
+            $rawDept = trim((string) ($item['department'] ?? ''));
+            $department = $rawDept !== '' ? (canonicalize_department($rawDept) ?? '') : '';
 
             if (!isset($aggregat[$key])) {
                 $aggregat[$key] = [
@@ -118,8 +123,10 @@ foreach ($ids as $id) {
     }
 }
 
-// Sammeln pro Department; Items ohne Department → "Sonstiges"
-const SONSTIGES = 'Sonstiges';
+// Sammeln pro Department; Items ohne Department → "other" (= Sonstiges).
+// Die UI übersetzt englische Slugs (inkl. "other") über
+// `assets/aggregate.js::displayDepartment` ins Deutsche.
+const SONSTIGES = 'other';
 $byDepartment = [];
 foreach ($aggregat as $entry) {
     $menge = $entry['quantity'];

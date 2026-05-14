@@ -10,17 +10,70 @@
 // was `loadCartRecipes()` aus `views/rezepte_print.js` liefert.
 
 // Kanonische Reihenfolge wie in `valid_departments()` in api/translation.php.
-// Wenn sich die Liste dort ändert, hier mitziehen.
+// Werte sind englische Slugs (ab Mai 2026) — Display-Übersetzung weiter unten.
 export const VALID_DEPARTMENTS = [
-    'Obst/Gemüse',
-    'Frische Theke',
-    'Non-Food',
-    'Getränke',
-    'Backen',
-    'Grundnahrungsmittel',
+    'fruit/vegetables',
+    'fresh-counter',
+    'non-food',
+    'drinks',
+    'baking',
+    'staple-foods',
 ];
 
-const SONSTIGES = 'Sonstiges';
+const SONSTIGES = 'other';
+
+// DE→EN-Mapping. Bestandsdaten und händisch geschriebene JSON-Files können
+// noch deutsche Werte enthalten — `canonicalizeDepartment` glättet beim
+// Aggregieren, damit alte und neue Items im selben Bucket landen.
+const DEPARTMENT_DE_TO_EN = {
+    'Obst/Gemüse': 'fruit/vegetables',
+    'Frische Theke': 'fresh-counter',
+    'Non-Food': 'non-food',
+    'Getränke': 'drinks',
+    'Backen': 'baking',
+    'Grundnahrungsmittel': 'staple-foods',
+};
+
+// Reverse-Map plus Spezial-Wert für „Sonstiges".
+const DEPARTMENT_EN_TO_DE = {
+    'fruit/vegetables': 'Obst/Gemüse',
+    'fresh-counter':    'Frische Theke',
+    'non-food':         'Non-Food',
+    'drinks':           'Getränke',
+    'baking':           'Backen',
+    'staple-foods':     'Grundnahrungsmittel',
+    'other':            'Sonstiges',
+};
+
+/**
+ * Akzeptiert deutsche oder englische Schreibweise (case-insensitiv).
+ * Liefert immer den englischen kanonischen Slug zurück. Leerer Input → ''.
+ * Unbekannte Werte → '' (= Sonstiges-Fallback bei der Aggregation).
+ */
+export function canonicalizeDepartment(value) {
+    const v = String(value ?? '').trim();
+    if (v === '') return '';
+    const lower = v.toLowerCase();
+
+    // Englisch direkt
+    for (const en of VALID_DEPARTMENTS) {
+        if (en.toLowerCase() === lower) return en;
+    }
+    // Deutsch
+    for (const [de, en] of Object.entries(DEPARTMENT_DE_TO_EN)) {
+        if (de.toLowerCase() === lower) return en;
+    }
+    return '';
+}
+
+/**
+ * Übersetzt einen englischen Department-Slug zurück ins Deutsche für die
+ * Anzeige. Unbekannter Slug → unverändert zurück (defensiv).
+ */
+export function displayDepartment(slug) {
+    if (!slug) return '';
+    return DEPARTMENT_EN_TO_DE[slug] ?? slug;
+}
 
 // Basis-Personenzahl auf die Mengen im Rezept normiert sind.
 // Spiegelt `BASIS_PERSONEN` in api/einkaufsliste.php.
@@ -69,7 +122,9 @@ export function aggregateIngredients(recipes) {
                 const quantity = typeof item.quantity === 'number'
                     ? item.quantity
                     : (parseFloat(item.quantity) || 0);
-                const department = String(item.department ?? '').trim();
+                // Department canonicalisieren: macht DE→EN, glättet Schreibweise.
+                // Bestandsdaten (vor Mai 2026) haben hier noch deutsche Werte.
+                const department = canonicalizeDepartment(item.department);
 
                 const key = lower(name) + '||' + lower(unit);
                 let entry = aggregat.get(key);

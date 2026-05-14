@@ -39,5 +39,22 @@
   "units_en_to_de": {
     "Pcs": "Stück",
     "Pck": "Packung"
+  },
+  "departments_de_to_en": {
+    "Obst/Gemüse": "fruit/vegetables",
+    "Frische Theke": "fresh-counter",
+    "Non-Food": "non-food",
+    "Getränke": "drinks",
+    "Backen": "baking",
+    "Grundnahrungsmittel": "staple-foods"
+  },
+  "departments_en_to_de": {
+    "fruit/vegetables": "Obst/Gemüse",
+    "fresh-counter": "Frische Theke",
+    "non-food": "Non-Food",
+    "drinks": "Getränke",
+    "baking": "Backen",
+    "staple-foods": "Grundnahrungsmittel",
+    "other": "Sonstiges"
   }
 }
