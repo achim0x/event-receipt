@@ -20,15 +20,31 @@ function escapeHtml(s) {
     }[c]));
 }
 
-// Einheiten die wir im Select anbieten. Server normalisiert: kg→g, L→ml,
-// EL→g(×15), TL→g(×5), Stück/Stk→Pcs, Packung→Pck — der User darf weiterhin
-// in der „natürlichen" Einheit eingeben.
-const UNIT_OPTIONS = ['', 'g', 'kg', 'ml', 'L', 'EL', 'TL', 'Stück', 'Packung', 'Pcs', 'Pck'];
+// Einheiten die wir im Select anbieten. Bewusst nur die deutsche Eingabeform —
+// Server normalisiert beim Speichern (Stück→Pcs, Packung→Pck, kg→g, L→ml,
+// EL→g×15, TL→g×5). Beim Laden eines Bestandsrezepts mappt `unitForSelect`
+// die kanonisch englischen Werte (Pcs/Pck) zurück auf die deutsche Anzeige,
+// damit der Select nicht „Pcs" zeigt wo der User „Stück" erwartet.
+const UNIT_OPTIONS = ['', 'g', 'kg', 'ml', 'L', 'EL', 'TL', 'Stück', 'Packung'];
+
+// Kanonisch englisch → bevorzugte Eingabeform (= eine der UNIT_OPTIONS).
+// Nur die zwei nicht-metrischen Einheiten haben hier einen Eintrag; g/ml
+// sind selbst schon kanonisch und matchen die Option direkt.
+const CANONICAL_TO_INPUT_UNIT = {
+    'Pcs': 'Stück',
+    'Pck': 'Packung',
+};
+
+function unitForSelect(value) {
+    const v = String(value ?? '');
+    return CANONICAL_TO_INPUT_UNIT[v] ?? v;
+}
 
 function unitOptionsHtml(selected) {
+    const target = unitForSelect(selected);
     return UNIT_OPTIONS.map(u => {
         const label = u === '' ? '— keine —' : u;
-        const sel = u === (selected ?? '') ? ' selected' : '';
+        const sel = u === target ? ' selected' : '';
         return `<option value="${escapeHtml(u)}"${sel}>${escapeHtml(label)}</option>`;
     }).join('');
 }
