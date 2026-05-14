@@ -266,9 +266,9 @@ onTokenInvalid(() => {
     }
 
     if (authStatus && authStatus.require_auth) {
-        // Geräte-Link nur einblenden wenn Auth aktiv ist — sonst Nav clean halten
+        // Geräte-Link nur einblenden wenn Auth aktiv UND wir auth'd sind
         const navLink = document.querySelector('.nav-geraete');
-        if (navLink) navLink.hidden = false;
+        if (navLink) navLink.hidden = !authStatus.is_authenticated;
 
         const path = getRoutePath();
         if (!authStatus.has_admin) {
@@ -277,11 +277,13 @@ onTokenInvalid(() => {
                 navigate('/setup', true);
                 return;
             }
-        } else if (!getToken() && path !== '/setup' && path !== '/pair') {
-            // Authorisierung gefordert, aber wir haben keinen Token →
-            // Cookie-Auth ist die andere Möglichkeit (Web-Admin). initCart
-            // unten wird's herausfinden — wenn der API-Call 401 wirft,
-            // schickt der onTokenInvalid-Handler uns ggf. auf /pair.
+        } else if (!authStatus.is_authenticated && path !== '/setup' && path !== '/pair') {
+            // Anonymer Request mit aktivem Auth-Lock → zum Pair-Screen.
+            // Der Server hat bereits geprüft ob ein Bearer-Token (aus
+            // localStorage) oder ein Session-Cookie (Web-Admin) gültig ist;
+            // beides nein heißt: dieser Browser ist nicht eingeloggt.
+            navigate('/pair', true);
+            return;
         }
     }
 

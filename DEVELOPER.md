@@ -994,6 +994,24 @@ Wer die App im Internet (statt LAN) betreibt:
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
 
+### 2026-05-12 — Auth-Gate-Bugfix: anonyme Requests werden umgeleitet
+
+Live-Bericht zwei Tage nach Phase-6-Rollout: nach Setup des Web-Admin
+funktioniert alles im selben Browser, aber:
+- Die Upload-Seite war von einem anonymen Browser aus erreichbar (sie zeigte zwar leere Listen, weil alle API-Calls 401 lieferten, aber kein Redirect zum Pair-Flow).
+- Auf einem zu pairenden Gerät war keine Code-Eingabe auffindbar.
+
+Ursache: `app.js`-Auth-Gate hatte den „auth aktiv + kein Token"-Fall nur als Kommentar gelöst. Der vorgesehene `onTokenInvalid`-Fallback feuerte zwar bei 401, aber nur wenn vorher ein Token vorhanden war — Mobile-Browser ohne jegliche Auth-Spur trafen ihn nie.
+
+Fix:
+- `/api/setup.php?action=status` liefert zusätzlich `is_authenticated` (basiert auf `current_geraet()`, ist also true bei gültigem Bearer-Token ODER Session-Cookie).
+- `app.js` redirected jetzt aktiv: `require_auth && has_admin && !is_authenticated && Pfad nicht in {setup, pair}` → `/pair`. Der „Geräte"-Nav-Link wird zusätzlich nur eingeblendet wenn der Browser tatsächlich auth'd ist.
+- `geraete.js` zeigt nach Code-Erzeugung jetzt klar die volle Pair-URL plus 3-Schritte-Anleitung — der User soll genau wissen, dass das Zielgerät die App-URL aufruft und automatisch zur Code-Eingabe geleitet wird.
+
+`CACHE_VERSION` → v6 damit Bestandsnutzer den Fix automatisch bekommen.
+
+Headless-verifiziert: anonymer Aufruf von `/upload` mit aktivem Auth-Lock rendert tatsächlich die `/pair`-View (statt der leeren Upload-Seite).
+
 ### 2026-05-12 — PWA-Phase 6: Setup + Pair-Flow + Auth-aware Frontend
 
 Vollständiger Pairing-Flow inkl. Setup-Wizard. Auth bleibt opt-in

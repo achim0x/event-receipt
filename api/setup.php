@@ -44,10 +44,16 @@ $method = $_SERVER['REQUEST_METHOD'];
 $action = $_GET['action'] ?? '';
 
 if ($method === 'GET' && ($action === '' || $action === 'status')) {
+    // is_authenticated nutzt current_geraet() — das prüft Bearer-Token
+    // ODER Cookie. Wenn beides fehlt, ist der aktuelle Request "anonym".
+    // Frontend nutzt das im Auth-Gate, um anonyme Mobile-Browser sofort
+    // auf /pair umzulenken (statt sie in eine leere Übersicht laufen
+    // zu lassen wo die Pair-Seite unauffindbar wäre).
     json_response([
         'require_auth' => REQUIRE_AUTH_TOKEN,
         'has_admin' => has_admin($db),
         'setup_token_pending' => read_setup_token_file() !== null,
+        'is_authenticated' => current_geraet() !== null,
     ]);
 }
 

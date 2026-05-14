@@ -98,11 +98,18 @@ export async function renderGeraete(root) {
             try {
                 const r = await api.createPairCode(name, typ);
                 const expiresInMin = Math.round(r.ttl_seconds / 60);
+                const pairUrl = new URL('pair', location.href).toString();
                 resultEl.innerHTML = `
                     <div class="warning-box">
                         <p><strong>Pairing-Code:</strong></p>
                         <p style="font-family:ui-monospace,monospace;font-size:2rem;letter-spacing:0.2em;text-align:center;margin:0.5rem 0;">${escapeHtml(r.code)}</p>
-                        <p class="muted">Auf dem zu koppelnden Gerät die App öffnen, „Gerät koppeln" → Code eingeben. Gültig für ${expiresInMin} Minuten.</p>
+                        <p class="muted">Gültig für ${expiresInMin} Minuten.</p>
+                        <p class="muted"><strong>So koppelst du das andere Gerät:</strong></p>
+                        <ol class="muted">
+                            <li>Auf dem Zielgerät (Handy/anderer Browser) die App-URL öffnen — du wirst automatisch zur Code-Eingabe geleitet.</li>
+                            <li>Falls nicht: direkt auf <code>${escapeHtml(pairUrl)}</code> gehen.</li>
+                            <li>Den oben angezeigten Code eingeben.</li>
+                        </ol>
                     </div>
                 `;
                 nameInput.value = '';
