@@ -979,6 +979,27 @@ Wer die App im Internet (statt LAN) betreibt:
 
 ## 12. Changelog
 
+### PWA-Implementierung (Mai 2026) — Übersicht der 6 Phasen
+
+| Phase | Inhalt | Hauptdateien |
+|---|---|---|
+| **1** | Aggregation client-seitig (Vorbereitung für Offline) | `assets/aggregate.js` |
+| **2** | PWA-Manifest + Service Worker (Installable, Offline-Cache) | `manifest.webmanifest`, `sw.js`, `assets/icons/` |
+| **3** | Offline-UI (Banner, `.needs-network`-Disable von Schreib-Buttons) | `assets/app.js`, `assets/style.css` |
+| **4** | Offline-Häkchen mit Background-Sync | `assets/checks_queue.js` |
+| **5** | Backend-Auth-Infrastructure (Token-Hashing, `geraete`-Tabelle, opt-in) | `api/bootstrap.php` |
+| **6** | Setup-Wizard + Pair-Code-Flow + Frontend-Auth-Gate | `api/setup.php`, `api/auth.php`, `assets/views/{setup,geraete,pair}.js` |
+
+**Was die PWA-Implementierung praktisch bringt:**
+- App ist installierbar auf iOS (Add-to-Homescreen) und Android (PWA-Install)
+- Letzte Rezepte und Cart-Daten funktionieren offline aus dem Cache
+- Häkchen offline persistent + automatischer Sync beim nächsten Online-Wechsel
+- Optionale geräte-basierte Authentifizierung mit 8-Zeichen-Pairing-Code (Setup-Token via SSH einmalig, danach Pairing aus Web-UI)
+
+**Wichtige Konvention für Bestandsnutzer**: Jede Änderung an `assets/*` braucht ein Bump von `CACHE_VERSION` in `sw.js`, sonst hängen Bestandsnutzer auf der alten Bundle-Version (Cache-First-Strategie).
+
+---
+
 ### 2026-05-04 — initiale Implementierung
 
 - Backend: `bootstrap.php`, `rezepte.php` (nur GET), `upload.php`, `einkaufsliste.php`
