@@ -1089,6 +1089,24 @@ Wer die App im Internet (statt LAN) betreibt:
 
 ## 12. Changelog
 
+### 2026-05-14 — Pairing-Code Lebensdauer auf 15 Minuten erhöht
+
+`PAIR_CODE_TTL_SECONDS` in `api/auth.php` von 300 (5 min) auf 900
+(15 min). Der Web-Admin hat jetzt mehr Zeit, am Zweit-Gerät anzukommen
+und den Code einzutippen, bevor er abläuft — die alten 5 Minuten waren
+in der Praxis knapp, vor allem wenn das Zielgerät noch lokalisiert
+werden muss oder ein anderer Tab dazwischenkommt.
+
+Der Frontend-Hinweistext in `pair.js` wurde mitgepflegt; in
+`geraete.js` wird der Wert ohnehin live aus der API-Antwort gelesen
+(`ttl_seconds / 60`), kein Hardcode dort.
+
+Keine Schema-Migration nötig: die `pairing_codes`-Tabelle speichert
+`expires_at` als ISO-Timestamp, der TTL-Wert wird nur beim Insert
+verwendet.
+
+---
+
 ### 2026-05-14 — Quelle als klickbarer Link
 
 Wenn die `source`/`quelle` mit `http://` oder `https://` beginnt, wird

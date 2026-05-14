@@ -6,7 +6,7 @@ declare(strict_types=1);
 //
 //   GET ?action=devices          → Liste aller (auch inaktiver) Geräte
 //   POST ?action=pair            → Body {name, typ}; erzeugt 8-Zeichen
-//                                   Pairing-Code (5 min Ablauf). Aufrufendes
+//                                   Pairing-Code (15 min Ablauf). Aufrufendes
 //                                   Gerät muss authentifiziert sein.
 //   POST ?action=redeem-pair     → Body {code}; tauscht den Code gegen den
 //                                   echten Token + Geräte-Eintrag. SKIP_AUTH
@@ -30,7 +30,7 @@ require __DIR__ . '/bootstrap.php';
 // Erlaubte Zeichen: A-Z (ohne I/O — Lesbarkeit), 0-9 (ohne 0/1)
 const PAIR_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const PAIR_CODE_LEN = 8;        // 8 Zeichen, anzeigeformat XXXX-XXXX
-const PAIR_CODE_TTL_SECONDS = 300; // 5 Minuten
+const PAIR_CODE_TTL_SECONDS = 900; // 15 Minuten
 
 function generate_pair_code(): string {
     $alphabet = PAIR_CODE_ALPHABET;

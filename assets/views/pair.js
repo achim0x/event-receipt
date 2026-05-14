@@ -28,7 +28,7 @@ export function renderPair(root) {
             <div id="status"></div>
 
             <p class="muted small" style="margin-top:2rem;">
-                Noch keinen Code? Auf einem schon eingeloggten Gerät auf <strong>Geräte</strong> gehen und „Pairing-Code erzeugen". Der Code ist 5 Minuten gültig.
+                Noch keinen Code? Auf einem schon eingeloggten Gerät auf <strong>Geräte</strong> gehen und „Pairing-Code erzeugen". Der Code ist 15 Minuten gültig.
             </p>
         </section>
     `;
