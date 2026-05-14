@@ -71,6 +71,7 @@ function emptyRecipe() {
         source: '',
         preparation_time: '',
         tags: [],
+        rating: 0,
         ingredients: [{ group: '', items: [{ quantity: '', unit: '', name: '', department: '' }] }],
         spices: [],
         preparation: [''],
@@ -134,6 +135,7 @@ function renderForm(root, { mode, id, data, backLink, title }) {
 
             <form id="rezept-form" novalidate>
                 ${renderGeneralFields(data)}
+                ${renderRatingBlock(data.rating)}
                 ${renderTagsBlock(data.tags)}
                 ${renderIngredientsBlock(data.ingredients)}
                 ${renderSimpleListBlock('Gewürze', 'spices', data.spices, 'Gewürz hinzufügen', false)}
@@ -179,6 +181,26 @@ function renderGeneralFields(data) {
                 <span>Quelle</span>
                 <input type="text" name="source" value="${escapeHtml(data.source ?? '')}" maxlength="200" placeholder="Kochbuch, URL, …">
             </label>
+        </fieldset>
+    `;
+}
+
+function renderRatingBlock(rating) {
+    // 5 Sterne-Buttons + ein „Zurücksetzen"-Button. Aktueller Wert wird im
+    // hidden input gehalten; das macht serializeForm() einfach und atomar.
+    const value = Number.isInteger(rating) && rating >= 0 && rating <= 5 ? rating : 0;
+    const starButtons = [1, 2, 3, 4, 5].map(n => {
+        const filled = n <= value;
+        return `<button type="button" class="star-btn${filled ? ' filled' : ''}" data-star="${n}" aria-label="${n} Stern${n === 1 ? '' : 'e'}">★</button>`;
+    }).join('');
+    return `
+        <fieldset class="form-section">
+            <legend>Bewertung</legend>
+            <div class="rating-widget" data-value="${value}">
+                <input type="hidden" name="rating" value="${value}">
+                ${starButtons}
+                <button type="button" class="btn small rating-clear"${value === 0 ? ' hidden' : ''}>Zurücksetzen</button>
+            </div>
         </fieldset>
     `;
 }
@@ -329,6 +351,24 @@ function bindForm(root, { mode, id, isEdit }) {
         const t = e.target.closest('button');
         if (!t) return;
 
+        // Rating-Widget: Stern-Klick setzt den Wert; nochmal denselben Stern
+        // klicken setzt eins drunter (3→2→1→0). Klar abgegrenztes
+        // Verhalten ohne Doppelklick-Magie.
+        if (t.classList.contains('star-btn')) {
+            const widget = t.closest('.rating-widget');
+            const hidden = widget.querySelector('input[name="rating"]');
+            const clicked = parseInt(t.dataset.star, 10);
+            const current = parseInt(hidden.value, 10) || 0;
+            const next = clicked === current ? clicked - 1 : clicked;
+            updateRatingWidget(widget, next);
+            return;
+        }
+        if (t.classList.contains('rating-clear')) {
+            const widget = t.closest('.rating-widget');
+            updateRatingWidget(widget, 0);
+            return;
+        }
+
         const add = t.dataset.add;
         if (add === 'group') {
             const groups = form.querySelector('#groups');
@@ -433,6 +473,18 @@ function showStatus(el, msg, kind = 'info') {
     el.innerHTML = `<p class="${kind}">${escapeHtml(msg)}</p>`;
 }
 
+function updateRatingWidget(widget, value) {
+    const v = Math.max(0, Math.min(5, parseInt(value, 10) || 0));
+    widget.dataset.value = String(v);
+    widget.querySelector('input[name="rating"]').value = String(v);
+    widget.querySelectorAll('.star-btn').forEach(btn => {
+        const n = parseInt(btn.dataset.star, 10);
+        btn.classList.toggle('filled', n <= v);
+    });
+    const clearBtn = widget.querySelector('.rating-clear');
+    if (clearBtn) clearBtn.hidden = v === 0;
+}
+
 // --- Serialization ---------------------------------------------------------
 
 function trimOrNull(s) {
@@ -462,6 +514,12 @@ function serializeForm(form) {
         tags.push(el.value);
     });
     out.tags = tags;
+
+    // Rating: hidden input mit Wert 0..5. 0 lassen wir explizit drin —
+    // Backend normalize_rating_in_recipe verwirft 0 sauber zu „kein Rating".
+    const ratingRaw = form.querySelector('input[name="rating"]')?.value;
+    const ratingInt = parseInt(ratingRaw ?? '0', 10);
+    out.rating = Number.isFinite(ratingInt) && ratingInt >= 0 && ratingInt <= 5 ? ratingInt : 0;
 
     // Ingredients
     const groups = [];

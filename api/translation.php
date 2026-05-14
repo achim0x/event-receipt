@@ -242,6 +242,31 @@ function canonicalize_tag(string $value): ?string {
 }
 
 /**
+ * Validiert das `rating`-Feld: Integer in [1..5] wird kanonisch als Int
+ * gespeichert. 0, leer, null oder fehlend → Feld weg (= „nicht bewertet").
+ * Andere Werte → Validierungsfehler.
+ */
+function normalize_rating_in_recipe(array &$recipe, array &$errors): void {
+    if (!array_key_exists('rating', $recipe)) return;
+
+    $raw = $recipe['rating'];
+    if ($raw === null || $raw === '' || $raw === 0 || $raw === '0') {
+        unset($recipe['rating']);
+        return;
+    }
+    // Strings wie "4" tolerieren — KI-Outputs kommen oft als Strings.
+    if (is_string($raw) && preg_match('/^[0-9]+$/', trim($raw))) {
+        $raw = (int) trim($raw);
+    }
+    if (!is_int($raw) || $raw < 1 || $raw > 5) {
+        $errors[] = sprintf('Rating muss eine Ganzzahl zwischen 1 und 5 sein (oder weggelassen werden), erhalten: %s', json_encode($recipe['rating']));
+        unset($recipe['rating']);
+        return;
+    }
+    $recipe['rating'] = $raw;
+}
+
+/**
  * Normalisiert das tags-Array in-place: trimmt, canonicalisiert (DE→EN),
  * dedupliziert in stabiler Reihenfolge (= Reihenfolge in valid_tags). Wirft
  * Validierungsfehler in $errors bei unbekannten Werten oder falschem Typ.
@@ -444,6 +469,12 @@ function normalize_recipe_strict(mixed $data): array {
     normalize_tags_in_recipe($normalized, $tagErrors);
     if (!empty($tagErrors)) {
         throw new RecipeValidationException('Tag-Fehler: ' . implode('; ', $tagErrors));
+    }
+
+    $ratingErrors = [];
+    normalize_rating_in_recipe($normalized, $ratingErrors);
+    if (!empty($ratingErrors)) {
+        throw new RecipeValidationException('Rating-Fehler: ' . implode('; ', $ratingErrors));
     }
 
     return $normalized;

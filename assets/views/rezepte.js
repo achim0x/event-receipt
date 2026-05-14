@@ -26,6 +26,18 @@ function formatQuantity(q) {
 }
 
 /**
+ * Markup für die Sterne-Anzeige (read-only). Gibt leeren String zurück wenn
+ * rating 0 oder ungültig ist — Aufrufer braucht keinen Vorab-Check.
+ */
+function renderStars(rating) {
+    const r = parseInt(rating ?? 0, 10);
+    if (!Number.isFinite(r) || r < 1 || r > 5) return '';
+    const filled = '★'.repeat(r);
+    const empty = '☆'.repeat(5 - r);
+    return `<span class="stars" title="${r} von 5 Sternen" aria-label="${r} von 5 Sternen"><span class="stars-filled">${filled}</span><span class="stars-empty">${empty}</span></span>`;
+}
+
+/**
  * Quelle als klickbaren Link rendern wenn sie wie eine URL aussieht
  * (http:// oder https://), sonst escaped als plain text.
  * Akzeptiert bewusst KEINE protokollosen "www.…" Strings — sonst würde
@@ -111,6 +123,7 @@ export async function renderRezeptListe(root) {
             return `
                 <a class="card" href="rezept/${r.id}" data-link>
                     <h3>${escapeHtml(r.titel)}</h3>
+                    ${renderStars(r.rating)}
                     ${r.kategorie ? `<span class="tag">${escapeHtml(r.kategorie)}</span>` : ''}
                     ${tagsHtml}
                     ${r.zubereitungszeit ? `<p class="muted">⏱ ${escapeHtml(r.zubereitungszeit)}</p>` : ''}
@@ -158,6 +171,7 @@ export async function renderRezeptDetail(root, id) {
             <div class="meta">
                 ${rezept.kategorie ? `<span class="tag">${escapeHtml(rezept.kategorie)}</span>` : ''}
                 ${tagsArr.map(t => `<span class="diet-tag diet-${escapeHtml(t)}">${escapeHtml(displayTag(t))}</span>`).join('')}
+                ${renderStars(rezept.rating)}
                 ${rezept.zubereitungszeit ? `<span>⏱ ${escapeHtml(rezept.zubereitungszeit)}</span>` : ''}
                 ${rezept.quelle ? `<span>📖 ${renderSourceText(rezept.quelle)}</span>` : ''}
             </div>

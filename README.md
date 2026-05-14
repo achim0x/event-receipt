@@ -16,6 +16,7 @@ JavaScript framework, no Composer.
 - **Named saved lists**: save the current cart under a name, load it back later, manage multiple saved lists
 - **Frozen snapshots**: saved lists capture a frozen copy of the referenced recipes — editing a recipe later does not retroactively change a previously saved shopping list
 - **Store-section grouping**: ingredients can carry an optional `department` (Obst/Gemüse, Frische Theke, Bäckerei, Non-Food, Getränke, Frühstück, Backen, Grundnahrungsmittel); the generated shopping list groups items accordingly with anything unlabelled under "Sonstiges"
+- **1–5 star rating** per recipe (optional). Stars appear on the overview cards and in the recipe detail; editable via the form editor. Stored as `rating` in the JSON blob and as a denormalized column for cheap display.
 - **Backup & migration**: download a single recipe as JSON from its detail view, or export/import the entire collection as one JSON file (suitable for backup or moving to another instance). Batch import validates each recipe individually and reports per-record failures while still importing the rest.
 - **Persistent check-off state**: ticked items on the shopping list stay ticked across reloads and are shared across devices (great for "I already got the flour" coordination); survives serving-size changes
 

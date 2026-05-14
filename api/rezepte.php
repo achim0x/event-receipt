@@ -39,7 +39,7 @@ switch ($method) {
 }
 
 function handleGetOne(PDO $db, int $id): void {
-    $stmt = $db->prepare('SELECT id, titel, kategorie, quelle, zubereitungszeit, daten, tags, erstellt_am FROM rezepte WHERE id = :id');
+    $stmt = $db->prepare('SELECT id, titel, kategorie, quelle, zubereitungszeit, daten, tags, rating, erstellt_am FROM rezepte WHERE id = :id');
     $stmt->execute([':id' => $id]);
     $row = $stmt->fetch();
 
@@ -50,6 +50,7 @@ function handleGetOne(PDO $db, int $id): void {
     // Spalten-Wert (",vegan,…,") in flaches Array umsetzen — Frontend bekommt
     // immer eine Liste, auch bei NULL.
     $row['tags'] = column_to_tags($row['tags'] ?? null);
+    $row['rating'] = (int) ($row['rating'] ?? 0);
     json_response($row);
 }
 
@@ -58,7 +59,7 @@ function handleGetList(PDO $db): void {
     $kategorie = trim((string) ($_GET['kategorie'] ?? ''));
     $tagFilter = trim((string) ($_GET['tag'] ?? ''));
 
-    $sql = 'SELECT id, titel, kategorie, quelle, zubereitungszeit, tags, erstellt_am FROM rezepte WHERE 1=1';
+    $sql = 'SELECT id, titel, kategorie, quelle, zubereitungszeit, tags, rating, erstellt_am FROM rezepte WHERE 1=1';
     $params = [];
     if ($suche !== '') {
         $sql .= ' AND titel LIKE :suche';
@@ -88,6 +89,7 @@ function handleGetList(PDO $db): void {
     // tags-Spalte in Array umsetzen für gleichmäßige Frontend-Verarbeitung
     foreach ($rows as &$r) {
         $r['tags'] = column_to_tags($r['tags'] ?? null);
+        $r['rating'] = (int) ($r['rating'] ?? 0);
     }
     json_response($rows);
 }
@@ -121,7 +123,8 @@ function handlePut(PDO $db, int $id): void {
                quelle = :quelle,
                zubereitungszeit = :zubereitungszeit,
                daten = :daten,
-               tags = :tags
+               tags = :tags,
+               rating = :rating
          WHERE id = :id
     ');
     $up->execute([
@@ -131,6 +134,7 @@ function handlePut(PDO $db, int $id): void {
         ':zubereitungszeit' => isset($normalized['preparation_time']) ? (string) $normalized['preparation_time'] : null,
         ':daten' => json_encode($normalized, JSON_UNESCAPED_UNICODE),
         ':tags' => tags_to_column($normalized['tags'] ?? []),
+        ':rating' => (int) ($normalized['rating'] ?? 0),
         ':id' => $id,
     ]);
 

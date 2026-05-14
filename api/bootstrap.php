@@ -116,6 +116,14 @@ if (!in_array('tags', $rezCols, true)) {
     $db->exec("ALTER TABLE rezepte ADD COLUMN tags TEXT");
 }
 
+// Rating-Spalte: Integer 0..5. 0 heißt „nicht bewertet" (der `daten`-Blob
+// trägt das Feld in dem Fall gar nicht, die Spalte ist mit Default 0 die
+// untere Schranke). Denormalisiert damit die Übersichtskarten und ggf.
+// spätere Filter ohne JSON-Decode rendern können.
+if (!in_array('rating', $rezCols, true)) {
+    $db->exec("ALTER TABLE rezepte ADD COLUMN rating INTEGER NOT NULL DEFAULT 0");
+}
+
 // Singleton-Tabelle für die geteilte aktuelle Einkaufsliste — eine Zeile (id=1).
 // `snapshot` ist optionaler Frozen-Daten-Blob (JSON Object {id: rezeptDaten})
 // für den Snapshot-Modus: wenn nicht leer, werden Mengen/Zubereitung aus

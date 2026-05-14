@@ -79,8 +79,8 @@ if ($dryRun) {
 }
 
 $stmt = $db->prepare('
-    INSERT INTO rezepte (titel, kategorie, quelle, zubereitungszeit, daten, tags)
-    VALUES (:titel, :kategorie, :quelle, :zubereitungszeit, :daten, :tags)
+    INSERT INTO rezepte (titel, kategorie, quelle, zubereitungszeit, daten, tags, rating)
+    VALUES (:titel, :kategorie, :quelle, :zubereitungszeit, :daten, :tags, :rating)
 ');
 $stmt->execute([
     ':titel' => (string) $normalized['title'],
@@ -89,6 +89,7 @@ $stmt->execute([
     ':zubereitungszeit' => isset($normalized['preparation_time']) ? (string) $normalized['preparation_time'] : null,
     ':daten' => json_encode($normalized, JSON_UNESCAPED_UNICODE),
     ':tags' => tags_to_column($normalized['tags'] ?? []),
+    ':rating' => (int) ($normalized['rating'] ?? 0),
 ]);
 
 $id = (int) $db->lastInsertId();

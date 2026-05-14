@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS rezepte (
     zubereitungszeit TEXT,
     daten           TEXT NOT NULL,  -- normalisierter JSON-Blob (EN-Keys)
     tags            TEXT,           -- comma-wrapped (",vegan,vegetarian,") oder NULL
+    rating          INTEGER NOT NULL DEFAULT 0,  -- 0 = nicht bewertet, sonst 1..5
     erstellt_am     DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_titel ON rezepte(titel);
@@ -125,10 +126,10 @@ CREATE TABLE IF NOT EXISTS einkaufsliste_abgehakt (
 ```
 
 **Konvention**: `daten` enthält das vollständige Rezept-JSON mit EN-Keys.
-Die Spalten `titel`, `kategorie`, `quelle`, `zubereitungszeit`, `tags` sind
-**denormalisierte Spiegelfelder** für Suche/Filter/Listen-Performance.
-Bei jedem `INSERT` und `UPDATE` werden sie aus dem normalisierten JSON
-mitgeschrieben.
+Die Spalten `titel`, `kategorie`, `quelle`, `zubereitungszeit`, `tags`,
+`rating` sind **denormalisierte Spiegelfelder** für Suche/Filter/Listen-
+Performance. Bei jedem `INSERT` und `UPDATE` werden sie aus dem
+normalisierten JSON mitgeschrieben.
 
 **`tags`-Spalte**: speichert die kanonischen englischen Slugs aus dem
 JSON-`tags`-Array als comma-wrapped String, z.B. `,vegan,vegetarian,`.
@@ -136,6 +137,12 @@ Empty Array wird zu `NULL`. Das Wrapping macht das Filter-LIKE
 eindeutig: `WHERE tags LIKE '%,vegan,%'` matched garantiert nur Items
 die `vegan` als ganzes Token haben, nicht z.B. ein fiktives `,vegano,`.
 Helpers in `translation.php`: `tags_to_column()` und `column_to_tags()`.
+
+**`rating`-Spalte**: Integer 0..5. `0` heißt „nicht bewertet" — das
+Feld fehlt dann auch im `daten`-Blob (per `normalize_rating_in_recipe`
+wegnormalisiert). Werte 1..5 stehen sowohl im Blob als auch in der
+Spalte. Damit kann die Übersicht (`/api/rezepte.php`) die Sterne
+ohne JSON-Decode rendern.
 
 ---
 
@@ -150,6 +157,7 @@ Kanonische Form (EN-Keys, in der DB so abgelegt):
   "source": "Nonna Maria",
   "preparation_time": "30 Minuten",
   "tags": ["vegetarian"],
+  "rating": 4,
   "ingredients": [
     {
       "group": "Hauptzutaten",
@@ -168,6 +176,13 @@ Kanonische Form (EN-Keys, in der DB so abgelegt):
 **`tags`** ist optional. Erlaubte Werte: `vegan`, `vegetarian` (kanonisch
 englisch). Beim Upload werden deutsche Aliasse `vegetarisch`/`Vegan`/etc.
 automatisch übersetzt. Unbekannte Werte erzeugen einen `400`.
+
+**`rating`** ist optional. Erlaubte Werte: Integer 1..5. `0`, `null`,
+`""` oder fehlend = „nicht bewertet" und wird beim Normalisieren aus
+dem Blob entfernt. Strings die rein numerisch sind („4") werden zu
+Int konvertiert (KI-Outputs senden sowas gern). Andere Werte → `400`
+mit `Rating-Fehler: ...`. DE-Schlüssel `bewertung` wird ebenfalls
+akzeptiert (siehe 5.1).
 
 **Mengen-Konvention** (geändert ggü. Spec): Mengen sind angegeben **pro 1 Person**.
 Skalierung im Frontend und in `einkaufsliste.php` multipliziert mit der
@@ -188,6 +203,7 @@ gewünschten Personenzahl direkt — kein `basis_personen`-Feld.
 | quelle            | source             |
 | zubereitungszeit  | preparation_time   |
 | etiketten         | tags               |
+| bewertung         | rating             |
 | zutaten           | ingredients        |
 | gruppe            | group              |
 | menge             | quantity           |
@@ -350,9 +366,12 @@ Query-Parameter:
 ```json
 [
   { "id": 1, "titel": "…", "kategorie": "…", "quelle": "…",
-    "zubereitungszeit": "…", "tags": ["vegan"], "erstellt_am": "…" }
+    "zubereitungszeit": "…", "tags": ["vegan"], "rating": 4,
+    "erstellt_am": "…" }
 ]
 ```
+
+`rating` ist immer ein Integer 0..5 (`0` = nicht bewertet).
 
 ### `GET /api/rezepte.php/{id}`
 
@@ -361,8 +380,9 @@ Einzelnes Rezept inkl. komplettem `daten`-Blob (geparsed).
 ```json
 {
   "id": 1, "titel": "…", "kategorie": "…", "quelle": "…",
-  "zubereitungszeit": "…", "tags": ["vegan"], "erstellt_am": "…",
-  "daten": { /* vollständiges Rezept-JSON, EN-Keys, inkl. tags */ }
+  "zubereitungszeit": "…", "tags": ["vegan"], "rating": 4,
+  "erstellt_am": "…",
+  "daten": { /* vollständiges Rezept-JSON, EN-Keys, inkl. tags + rating */ }
 }
 ```
 
@@ -1090,6 +1110,39 @@ Wer die App im Internet (statt LAN) betreibt:
 ---
 
 ## 12. Changelog
+
+### 2026-05-14 — 1–5 Sterne-Rating pro Rezept
+
+Neues optionales Top-Level-Feld `rating` (Integer, 1..5). `0`/`null`/
+fehlend = „nicht bewertet" und wird beim Normalisieren aus dem Blob
+entfernt.
+
+- **Schema/Persistenz**: neue Spalte `rezepte.rating` (Integer NOT NULL
+  DEFAULT 0) — idempotente Migration in `bootstrap.php`. Spalte ist
+  Denormalisierung; Single Source of Truth ist der `daten`-Blob, aber
+  die Spalte erlaubt der Übersichts-API die Sterne ohne JSON-Decode
+  zurückzugeben.
+- **Validierung**: `translation.php::normalize_rating_in_recipe`. 1..5
+  als Int oder als reiner Ziffern-String („4") werden akzeptiert; alles
+  andere wirft `Rating-Fehler: ...` (400).
+- **Translation**: DE-Key `bewertung` → `rating` in
+  `translation_map.json::de_to_en`.
+- **API**: List + Detail liefern `rating` als Integer mit; PUT, POST
+  /upload und /import speichern Spalte mit.
+- **Form-Editor** (`rezept_form.js`): neue Sektion „Bewertung" mit fünf
+  Stern-Buttons. Klick auf einen Stern setzt den Wert; Klick auf den
+  bereits aktiven Wert geht eins runter (5→4→3→2→1→0). „Zurücksetzen"-
+  Button für 0 in einem Schritt.
+- **Anzeige**: read-only Stern-Markup (`renderStars()`) auf den
+  Karten der Übersicht und in der Detail-Meta-Zeile. Goldgelb gefüllte
+  ★ + graue ☆ damit auch ohne Farb-Rendering klar ist welche Position
+  wieviel zählt.
+- **Template**: `recipe_template.json` bekommt `"rating": 0` damit
+  KI-Outputs das Feld natürlich mitliefern können.
+
+`SW CACHE_VERSION` v16 → v17.
+
+---
 
 ### 2026-05-14 — Departments Bäckerei + Frühstück ergänzt
 
