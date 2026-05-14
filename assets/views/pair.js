@@ -30,6 +30,29 @@ export function renderPair(root) {
             <p class="muted small" style="margin-top:2rem;">
                 Noch keinen Code? Auf einem schon eingeloggten Gerät auf <strong>Geräte</strong> gehen und „Pairing-Code erzeugen". Der Code ist 15 Minuten gültig.
             </p>
+
+            <details class="install-hint">
+                <summary>📱 Als App installieren (Android / iOS)</summary>
+                <div class="install-hint-body">
+                    <p>Die Web-App lässt sich am Smartphone auch wie eine richtige App installieren — sie startet dann direkt vom Home-Bildschirm, ohne Browser-Leiste, und Häkchen auf der Einkaufsliste funktionieren auch offline.</p>
+                    <p class="muted small"><strong>Tipp:</strong> Auf iOS am besten <em>vor</em> dem Koppeln installieren — die installierte App hat einen eigenen Speicher, im Browser eingegebene Codes gelten dort nicht.</p>
+
+                    <h4>Android (Chrome / Edge)</h4>
+                    <ol>
+                        <li>Auf die <strong>⋮</strong>-Schaltfläche oben rechts tippen.</li>
+                        <li>„<strong>App installieren</strong>" oder „<strong>Zum Startbildschirm hinzufügen</strong>" wählen.</li>
+                        <li>Bestätigen — das Rezepte-Icon erscheint auf dem Home-Bildschirm.</li>
+                    </ol>
+
+                    <h4>iOS / iPadOS (Safari)</h4>
+                    <ol>
+                        <li>Auf das <strong>Teilen-Symbol</strong> tippen (Rechteck mit Pfeil nach oben, in der unteren Leiste bzw. oben rechts auf iPad).</li>
+                        <li>Im Menü nach unten scrollen und „<strong>Zum Home-Bildschirm</strong>" wählen.</li>
+                        <li>„Hinzufügen" oben rechts antippen — das Rezepte-Icon erscheint auf dem Home-Bildschirm.</li>
+                    </ol>
+                    <p class="muted small">Funktioniert nur in Safari — Chrome/Firefox auf iOS unterstützen das nicht.</p>
+                </div>
+            </details>
         </section>
     `;
 

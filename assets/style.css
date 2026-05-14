@@ -408,6 +408,31 @@ textarea#editor {
     border-color: var(--accent);
 }
 
+/* Install-Hint auf /pair — eingeklappter Block mit Anleitung */
+.install-hint {
+    margin-top: 2rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+}
+.install-hint > summary {
+    cursor: pointer;
+    padding: 0.75rem 1rem;
+    font-weight: 500;
+    user-select: none;
+}
+.install-hint > summary:hover { color: var(--accent); }
+.install-hint .install-hint-body {
+    padding: 0 1rem 1rem;
+    border-top: 1px solid var(--border);
+}
+.install-hint h4 {
+    margin: 1rem 0 0.4rem;
+    font-size: 1rem;
+}
+.install-hint ol { padding-left: 1.4rem; margin: 0.3rem 0; }
+.install-hint ol li { margin: 0.25rem 0; }
+
 .warning-box {
     background: #fff8e1;
     border-left: 4px solid #f9a825;
