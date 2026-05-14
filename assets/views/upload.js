@@ -56,7 +56,7 @@ export function renderUpload(root) {
                 <div class="bulk-body">
                     <h3>Exportieren</h3>
                     <p class="muted">Lade alle Rezepte als einzelne JSON-Datei herunter — geeignet als Backup oder fürs Umziehen auf eine andere Installation.</p>
-                    <p><a href="api/export.php" download class="btn">📦 Alle Rezepte herunterladen</a></p>
+                    <p><button type="button" class="btn needs-network" id="bulk-export">📦 Alle Rezepte herunterladen</button></p>
 
                     <h3>Importieren</h3>
                     <p class="muted">Akzeptiert das vom Export erzeugte Format <code>{recipes: [...]}</code> oder ein nacktes Array von Rezepten. Bestehende Rezepte werden nicht überschrieben — die importierten kommen als neue Einträge dazu. Pro Rezept wird validiert; defekte Einträge werden mit Begründung gemeldet und übersprungen, der Rest landet trotzdem.</p>
@@ -256,4 +256,34 @@ export function renderUpload(root) {
 
     root.querySelector('#bulk-dryrun').addEventListener('click', () => runBulkImport(true));
     root.querySelector('#bulk-import').addEventListener('click', () => runBulkImport(false));
+
+    // Export-Button: programmatischer Download via authentifiziertem fetch.
+    // Ein einfacher `<a href download>` würde Cookie-Sessions reichen, aber
+    // gepairte Mobile-PWAs nutzen Bearer-Token aus localStorage — der lässt
+    // sich nicht auf einen Link kleben → 401. Daher zentral über api.js.
+    const exportBtn = root.querySelector('#bulk-export');
+    exportBtn.addEventListener('click', async () => {
+        exportBtn.disabled = true;
+        const originalLabel = exportBtn.textContent;
+        exportBtn.textContent = '… lädt';
+        try {
+            const data = await api.exportCollection();
+            const text = JSON.stringify(data, null, 2);
+            const blob = new Blob([text], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            const today = new Date().toISOString().slice(0, 10);
+            a.download = `rezepte-export-${today}.json`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            alert('Export fehlgeschlagen: ' + err.message);
+        } finally {
+            exportBtn.disabled = false;
+            exportBtn.textContent = originalLabel;
+        }
+    });
 }
