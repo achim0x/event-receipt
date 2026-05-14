@@ -13,7 +13,7 @@
 // Beim Deploy: CACHE_VERSION hochziehen → alle alten Caches werden
 // beim activate-Event aufgeräumt.
 
-const CACHE_VERSION = 'v23';
+const CACHE_VERSION = 'v24';
 const PRECACHE = `precache-${CACHE_VERSION}`;
 const RUNTIME = `runtime-${CACHE_VERSION}`;
 
@@ -100,11 +100,17 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // API-GETs: Stale-While-Revalidate. Ausnahme: Auth-/Setup-Endpoints
-    // werden NICHT gecached — der Status (require_auth, has_admin etc.)
-    // muss live aktuell sein, sonst sieht der User stale Setup-Schritte.
+    // API-GETs: Stale-While-Revalidate. Ausnahmen mit Network-Passthrough:
+    //  - setup.php / auth.php — Auth-Status muss live aktuell sein, sonst
+    //    sieht der User stale Setup-Schritte.
+    //  - export.php — Backup-/Migrations-Download muss garantiert die
+    //    aktuellsten Rezepte enthalten. Stale-While-Revalidate würde beim
+    //    Klick einen veralteten Stand liefern und erst danach im Hintergrund
+    //    refreshen.
     if (url.pathname.startsWith(SCOPE + 'api/')) {
-        if (url.pathname.endsWith('/setup.php') || url.pathname.endsWith('/auth.php')) {
+        if (url.pathname.endsWith('/setup.php')
+            || url.pathname.endsWith('/auth.php')
+            || url.pathname.endsWith('/export.php')) {
             return;  // Browser-default = network passthrough
         }
         event.respondWith(staleWhileRevalidate(req));
