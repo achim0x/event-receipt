@@ -1089,6 +1089,38 @@ Wer die App im Internet (statt LAN) betreibt:
 
 ## 12. Changelog
 
+### 2026-05-14 — Geräteliste filtert revozierte raus, Admin-Toggle pro Gerät
+
+Zwei Verfeinerungen am Geräteverwaltungs-Flow:
+
+- **Liste filtert auf `aktiv = 1`**: `?action=devices` liefert nur
+  noch nicht-widerrufene Geräte. Die DB-Zeile selbst bleibt für
+  Audit-Zwecke erhalten — Re-Pairing erzeugt ohnehin einen frischen
+  Datensatz, ein „re-aktivieren" gibt es bewusst nicht. Tote
+  `widerrufen`-Pill-Logik in `geraete.js` mit raus.
+- **Admin-Status pro Gerät setzbar**: neuer Endpoint
+  `POST ?action=set-admin {id, is_admin: bool}` in `auth.php`,
+  gated mit `require_device_management_access()`. Damit kann man
+  unabhängig von `DEVICE_MANAGEMENT_OPEN_TO_ALL` einzelnen Geräten
+  Admin-Rechte geben oder wieder entziehen. UI bekommt einen
+  Toggle-Button pro Zeile („⬆ Admin geben" / „⬇ Admin entziehen").
+- **Lockout-Schutz analog zu revoke**: Demote des letzten aktiven
+  Admins wird verweigert (400). Greift wieder in beiden
+  Konstanten-Modi.
+- **Self-Demote**: technisch erlaubt, vor dem Senden ein extra
+  Confirm in der UI — wer sich bei `DEVICE_MANAGEMENT_OPEN_TO_ALL
+  = false` selbst demotet, verliert den Zugriff (was OK ist und
+  beabsichtigt sein kann; nur nicht versehentlich).
+
+API-Methode: `api.setDeviceAdmin(id, isAdmin)`.
+
+CSS: kleine `.device-actions`-Flexbox damit die zwei Buttons pro
+Zeile nicht zusammenkleben.
+
+`SW CACHE_VERSION` v14 → v15.
+
+---
+
 ### 2026-05-14 — Admin-Rolle für Geräteverwaltung + Self-Revoke
 
 Bisher durfte jedes auth'd Gerät die Geräteverwaltung (`/geraete`)

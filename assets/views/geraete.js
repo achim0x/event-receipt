@@ -41,19 +41,21 @@ export async function renderGeraete(root) {
                         </tr></thead>
                         <tbody>
                             ${devices.map(d => `
-                                <tr data-id="${d.id}"${d.is_current ? ' data-self="1"' : ''}>
+                                <tr data-id="${d.id}"${d.is_current ? ' data-self="1"' : ''}${d.is_admin ? ' data-admin="1"' : ''}>
                                     <td>
                                         <strong>${escapeHtml(d.name)}</strong>
                                         ${d.is_current ? '<span class="tag">aktuelles Gerät</span>' : ''}
                                         ${d.is_admin ? '<span class="tag" style="background:#ffe9c4;color:#7a5200;">Admin</span>' : ''}
-                                        ${!d.aktiv ? '<span class="tag" style="background:#fee;color:#900;">widerrufen</span>' : ''}
                                     </td>
                                     <td>${escapeHtml(d.typ)}</td>
                                     <td class="muted small">${escapeHtml(d.zuletzt_gesehen || 'noch nie')}</td>
-                                    <td>
-                                        ${d.aktiv
-                                            ? `<button type="button" class="btn small danger revoke">🗑 ${d.is_current ? 'Eigenes Gerät widerrufen' : 'Widerrufen'}</button>`
-                                            : ''}
+                                    <td class="device-actions">
+                                        <button type="button" class="btn small toggle-admin">
+                                            ${d.is_admin ? '⬇ Admin entziehen' : '⬆ Admin geben'}
+                                        </button>
+                                        <button type="button" class="btn small danger revoke">
+                                            🗑 ${d.is_current ? 'Eigenes Gerät widerrufen' : 'Widerrufen'}
+                                        </button>
                                     </td>
                                 </tr>
                             `).join('')}
@@ -75,6 +77,34 @@ export async function renderGeraete(root) {
                 <div id="pair-result"></div>
             </section>
         `;
+
+        root.querySelectorAll('tr[data-id] .toggle-admin').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const tr = btn.closest('tr');
+                const id = parseInt(tr.dataset.id, 10);
+                const isAdmin = tr.dataset.admin === '1';
+                const isSelf = tr.dataset.self === '1';
+                const newState = !isAdmin;
+
+                if (!newState) {
+                    // Demote: bei Self extra warnen — der User könnte sich
+                    // selbst aussperren wenn DEVICE_MANAGEMENT_OPEN_TO_ALL
+                    // ausgeschaltet ist. Letzter-Admin-Lockout fängt der
+                    // Server ohnehin ab; das hier ist nur UX.
+                    const msg = isSelf
+                        ? 'Dir selbst die Admin-Rechte entziehen? Falls die Konstante DEVICE_MANAGEMENT_OPEN_TO_ALL nicht aktiv ist, verlierst du danach den Zugang zur Geräteverwaltung.\n\nWirklich fortfahren?'
+                        : 'Diesem Gerät die Admin-Rechte entziehen?';
+                    if (!confirm(msg)) return;
+                }
+
+                try {
+                    await api.setDeviceAdmin(id, newState);
+                    await draw();
+                } catch (err) {
+                    alert('Admin-Status setzen fehlgeschlagen: ' + err.message);
+                }
+            });
+        });
 
         root.querySelectorAll('tr[data-id] .revoke').forEach(btn => {
             btn.addEventListener('click', async () => {

@@ -64,7 +64,10 @@ if ($method === 'GET' && $action === 'devices') {
         require_authenticated_geraet();
         require_device_management_access();
     }
-    $stmt = $db->query('SELECT id, name, typ, erstellt_am, zuletzt_gesehen, aktiv, is_admin FROM geraete ORDER BY id ASC');
+    // Nur aktive Geräte ausliefern — widerrufene werden für Audit-Zwecke in
+    // der DB behalten, aber sind UI-seitig unsichtbar (re-pairen erzeugt
+    // ohnehin einen neuen Datensatz, kein Re-Aktivieren).
+    $stmt = $db->query('SELECT id, name, typ, erstellt_am, zuletzt_gesehen, aktiv, is_admin FROM geraete WHERE aktiv = 1 ORDER BY id ASC');
     $rows = $stmt->fetchAll();
     $current = current_geraet();
     $list = [];
@@ -238,6 +241,51 @@ if ($method === 'POST' && $action === 'revoke') {
         'ok' => true,
         'id' => $id,
         'self_revoked' => $isSelf,
+    ]);
+}
+
+if ($method === 'POST' && $action === 'set-admin') {
+    if (REQUIRE_AUTH_TOKEN) {
+        require_authenticated_geraet();
+        require_device_management_access();
+    }
+    $raw = file_get_contents('php://input') ?: '';
+    try {
+        $body = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+    } catch (JsonException $e) {
+        json_error('Ungültiges JSON', 400);
+    }
+    $id = (int) ($body['id'] ?? 0);
+    if ($id <= 0) json_error('id erforderlich', 400);
+    if (!array_key_exists('is_admin', $body)) json_error('Feld "is_admin" erforderlich', 400);
+    $newAdmin = (bool) $body['is_admin'];
+
+    // Ziel-Gerät prüfen — wir wollen keine Mutation auf revozierten Reihen.
+    $tgt = $db->prepare('SELECT id, aktiv, is_admin FROM geraete WHERE id = :id');
+    $tgt->execute([':id' => $id]);
+    $target = $tgt->fetch();
+    if (!$target) json_error('Gerät nicht gefunden', 404);
+    if ((int) $target['aktiv'] !== 1) {
+        json_error('Widerrufene Geräte können nicht modifiziert werden', 400);
+    }
+
+    // Demote des letzten aktiven Admins blockieren — gleiche Lockout-Logik
+    // wie beim revoke. Sonst wäre die App ohne Setup-Token-Recovery gesperrt.
+    if (REQUIRE_AUTH_TOKEN && !$newAdmin && (int) ($target['is_admin'] ?? 0) === 1) {
+        $stmt = $db->query('SELECT COUNT(*) FROM geraete WHERE is_admin = 1 AND aktiv = 1');
+        $activeAdmins = (int) $stmt->fetchColumn();
+        if ($activeAdmins <= 1) {
+            json_error('Dem letzten aktiven Admin-Gerät können die Admin-Rechte nicht entzogen werden — die App wäre danach gesperrt. Erst ein weiteres Gerät zum Admin machen.', 400);
+        }
+    }
+
+    $up = $db->prepare('UPDATE geraete SET is_admin = :a WHERE id = :id');
+    $up->execute([':a' => $newAdmin ? 1 : 0, ':id' => $id]);
+
+    json_response([
+        'ok' => true,
+        'id' => $id,
+        'is_admin' => $newAdmin,
     ]);
 }
 

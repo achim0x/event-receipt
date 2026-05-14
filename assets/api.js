@@ -233,6 +233,15 @@ export const api = {
         return handle(res);
     },
 
+    async setDeviceAdmin(id, isAdmin) {
+        const res = await authFetch(`${BASE}/auth.php?action=set-admin`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id, is_admin: !!isAdmin }),
+        });
+        return handle(res);
+    },
+
     async logout() {
         const res = await authFetch(`${BASE}/auth.php?action=logout`, { method: 'POST' });
         return handle(res);

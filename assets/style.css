@@ -408,6 +408,15 @@ textarea#editor {
     border-color: var(--accent);
 }
 
+/* Geräte-Tabelle: Action-Zelle mit zwei Buttons (Admin-Toggle + Widerrufen) */
+.device-actions {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+.device-actions .btn { white-space: nowrap; }
+
 /* Install-Hint auf /pair — eingeklappter Block mit Anleitung */
 .install-hint {
     margin-top: 2rem;
