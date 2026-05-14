@@ -15,7 +15,7 @@ JavaScript framework, no Composer.
 - **Shared shopping list**: cart is server-backed and shared across all users (no auth — single household / small group use case)
 - **Named saved lists**: save the current cart under a name, load it back later, manage multiple saved lists
 - **Frozen snapshots**: saved lists capture a frozen copy of the referenced recipes — editing a recipe later does not retroactively change a previously saved shopping list
-- **Store-section grouping**: ingredients can carry an optional `department` (Obst/Gemüse, Frische Theke, Non-Food, Getränke, Backen, Grundnahrungsmittel); the generated shopping list groups items accordingly with anything unlabelled under "Sonstiges"
+- **Store-section grouping**: ingredients can carry an optional `department` (Obst/Gemüse, Frische Theke, Bäckerei, Non-Food, Getränke, Frühstück, Backen, Grundnahrungsmittel); the generated shopping list groups items accordingly with anything unlabelled under "Sonstiges"
 - **Backup & migration**: download a single recipe as JSON from its detail view, or export/import the entire collection as one JSON file (suitable for backup or moving to another instance). Batch import validates each recipe individually and reports per-record failures while still importing the rest.
 - **Persistent check-off state**: ticked items on the shopping list stay ticked across reloads and are shared across devices (great for "I already got the flour" coordination); survives serving-size changes
 
@@ -27,7 +27,8 @@ JavaScript framework, no Composer.
 
 **Authentication**
 - To activate token-based device authentication, set `const REQUIRE_AUTH_TOKEN = true;` at the bottom of `api/bootstrap.php`. After that, only paired devices can access the app — see [Enable device-pairing](#enable-device-pairing-optional-opt-in) for the setup walkthrough.
-- By default, only **admin** devices (= the first device that redeems the setup token) can manage other devices and create pairing codes. To let **every** paired device manage devices too, set `const DEVICE_MANAGEMENT_OPEN_TO_ALL = true;` in the same file. See [Open device management to all devices](#open-device-management-to-all-devices).
+- By default, only **admin** devices (= the first device that redeems the setup token) can manage other devices and create pairing codes. You can promote individual devices into admins later via the „Geräte" screen — see [Grant admin rights to individual devices](#grant-admin-rights-to-individual-devices).
+- To let **every** paired device manage devices regardless of admin status, set `const DEVICE_MANAGEMENT_OPEN_TO_ALL = true;` in the same file. See [Open device management to all devices](#open-device-management-to-all-devices).
 
 ---
 
@@ -287,31 +288,51 @@ also revoke **your own** device from there — useful when you're
 logging out from a shared computer. Logout (without revoke) clears
 the web cookie only — bearer tokens stay valid until revoked.
 
-> **Lockout guard**: revoking the last remaining active admin device
-> is refused with HTTP 400 — otherwise you would have to re-run the
-> SSH-based setup-token flow to get back in. Create a second admin
-> first if you really want to retire the current one.
+Revoked devices disappear from the management list — the database
+row is kept for audit, but there is no „re-activate" path. If a
+revoked device is needed again, generate a fresh pairing-code for
+it (which produces a new row).
+
+> **Lockout guard**: the server refuses any operation that would
+> leave zero active admin devices — both *revoking* the last
+> active admin and *demoting* it via the admin toggle return
+> HTTP 400. Otherwise the only path back in is the SSH-based
+> setup-token flow. Create a second admin first if you really
+> want to retire the current one.
+
+### Grant admin rights to individual devices
+
+Each row on the „Geräte" screen has an admin toggle button
+(„⬆ Admin geben" / „⬇ Admin entziehen"). Use it to promote a
+specific paired device into an admin, or to revoke that status
+again, without flipping any constant.
+
+Promote a non-admin device when you want to delegate device
+management to a second person but keep the household-shared
+flag (`DEVICE_MANAGEMENT_OPEN_TO_ALL`) off for everyone else.
+Demoting yourself is allowed; if `DEVICE_MANAGEMENT_OPEN_TO_ALL`
+is also off, that's a self-lockout — the UI asks for an extra
+confirm before doing it.
+
+The lockout guard above also applies here: the last active
+admin cannot be demoted.
 
 ### Open device management to all devices
 
-Default behaviour: only the **admin** device (= the device that
-redeemed the initial setup token) can list, pair or revoke devices.
-Devices added later via pairing-code can use the app but cannot
-manage device access.
-
-To lift that restriction — for instance in a household where any
-adult should be able to add a new family member's phone — set the
-constant in `api/bootstrap.php`:
+The fine-grained per-device admin toggle above is usually
+enough. If your model is „any household member can pair the
+kid's new phone" and you don't want to grant admin to each
+device by hand, flip the constant in `api/bootstrap.php`:
 
 ```php
 const DEVICE_MANAGEMENT_OPEN_TO_ALL = true;
 ```
 
-With that flag on, every paired device sees the „Geräte" nav entry
-and can create pairing codes, revoke devices and so on. The admin
-flag still exists in the database and one active admin device is
-still required at all times (lockout guard above), but no longer
-gatekeeps the UI/API.
+With that flag on, every paired device — admin or not — sees
+the „Geräte" nav entry and can create pairing codes, revoke
+devices and so on. The admin flag still exists in the database
+and one active admin device is still required at all times
+(lockout guard above), but it no longer gatekeeps the UI/API.
 
 ### Replace placeholder icons
 

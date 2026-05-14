@@ -254,8 +254,10 @@ deutscher Schreibweise werden automatisch übersetzt.
 |---|---|
 | `fruit/vegetables`  | Obst/Gemüse |
 | `fresh-counter`     | Frische Theke |
+| `bakery`            | Bäckerei |
 | `non-food`          | Non-Food |
 | `drinks`            | Getränke |
+| `breakfast`         | Frühstück |
 | `baking`            | Backen |
 | `staple-foods`      | Grundnahrungsmittel |
 | `other` *(implizit)* | Sonstiges *(Fallback für leeres/unbekanntes Department)* |
@@ -992,7 +994,7 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 | Detail-Endpunkt liefert Liste statt Einzel-Rezept | Pfad-Regex matcht nicht | aktueller Regex matcht `/api/rezepte/{id}` UND `/api/rezepte.php/{id}` |
 | Cart enthält gelöschtes Rezept | Cart wird auf Server-Seite nicht synchronisiert | Frontend ruft `cart.remove()` nach `DELETE` auf — bei direkten DB-Eingriffen muss man im Browser localStorage manuell leeren |
 | Upload bricht mit "Unbekannte Einheit" ab | Einheit ist nicht in der Map (siehe 5.2) | Entweder JSON anpassen (z. B. `Stk` → `Stück`), oder `unit_normalization_map()` in `api/translation.php` ergänzen + ggf. `translation_map.json` aktualisieren |
-| Upload bricht mit "Unbekannte Abteilung" ab | `department`-Wert nicht in der Liste (siehe 5.3) | JSON anpassen auf einen der erlaubten Werte (Obst/Gemüse, Frische Theke, Non-Food, Getränke, Backen, Grundnahrungsmittel) oder die Liste in `valid_departments()` erweitern |
+| Upload bricht mit "Unbekannte Abteilung" ab | `department`-Wert nicht in der Liste (siehe 5.3) | JSON anpassen auf einen der erlaubten Werte (Obst/Gemüse, Frische Theke, Bäckerei, Non-Food, Getränke, Frühstück, Backen, Grundnahrungsmittel) oder die Liste in `valid_departments()` erweitern |
 
 ---
 
@@ -1088,6 +1090,36 @@ Wer die App im Internet (statt LAN) betreibt:
 ---
 
 ## 12. Changelog
+
+### 2026-05-14 — Departments Bäckerei + Frühstück ergänzt
+
+Zwei neue erlaubte Werte fürs `department`-Feld:
+
+| Englisch (DB) | Deutsch (UI) |
+|---|---|
+| `bakery`    | Bäckerei  |
+| `breakfast` | Frühstück |
+
+`bakery` ist zwischen `fresh-counter` und `non-food` einsortiert
+(frische Backwaren neben anderen frischen Theken), `breakfast` liegt
+zwischen `drinks` und `baking` (Trockensortiment für Frühstücksregal
+neben Backzutaten). Die Reihenfolge in `valid_departments()` steuert
+die Anzeigereihenfolge der Einkaufsliste.
+
+Geändert in jeder Quelle die das Vokabular hartcodiert:
+- `api/translation.php` (`valid_departments`, `german_to_english_department`)
+- `assets/aggregate.js` (`VALID_DEPARTMENTS`, beide Übersetzungs-Maps)
+- `translation_map.json` (`departments_de_to_en`, `departments_en_to_de`)
+- `assets/views/upload.js` (KI-Prompt mit den jetzt acht erlaubten Werten)
+- `README.md` Feature-Bullet, `DEVELOPER.md` Sektion 5.3 + Stolpersteine
+
+Bestandsrezepte werden nicht migriert — neue Uploads/Edits können
+sofort auf die neuen Slugs setzen. Frontend rendert die neuen
+deutschen Labels überall wo `displayDepartment()` zum Einsatz kommt.
+
+`SW CACHE_VERSION` v15 → v16.
+
+---
 
 ### 2026-05-14 — Geräteliste filtert revozierte raus, Admin-Toggle pro Gerät
 

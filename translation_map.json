@@ -45,16 +45,20 @@
   "departments_de_to_en": {
     "Obst/Gemüse": "fruit/vegetables",
     "Frische Theke": "fresh-counter",
+    "Bäckerei": "bakery",
     "Non-Food": "non-food",
     "Getränke": "drinks",
+    "Frühstück": "breakfast",
     "Backen": "baking",
     "Grundnahrungsmittel": "staple-foods"
   },
   "departments_en_to_de": {
     "fruit/vegetables": "Obst/Gemüse",
     "fresh-counter": "Frische Theke",
+    "bakery": "Bäckerei",
     "non-food": "Non-Food",
     "drinks": "Getränke",
+    "breakfast": "Frühstück",
     "baking": "Backen",
     "staple-foods": "Grundnahrungsmittel",
     "other": "Sonstiges"

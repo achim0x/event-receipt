@@ -139,8 +139,10 @@ function valid_departments(): array {
     return [
         'fruit/vegetables',
         'fresh-counter',
+        'bakery',
         'non-food',
         'drinks',
+        'breakfast',
         'baking',
         'staple-foods',
     ];
@@ -155,8 +157,10 @@ function german_to_english_department(): array {
     return [
         'Obst/Gemüse'         => 'fruit/vegetables',
         'Frische Theke'       => 'fresh-counter',
+        'Bäckerei'            => 'bakery',
         'Non-Food'            => 'non-food',
         'Getränke'            => 'drinks',
+        'Frühstück'           => 'breakfast',
         'Backen'              => 'baking',
         'Grundnahrungsmittel' => 'staple-foods',
     ];

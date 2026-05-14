@@ -14,8 +14,10 @@
 export const VALID_DEPARTMENTS = [
     'fruit/vegetables',
     'fresh-counter',
+    'bakery',
     'non-food',
     'drinks',
+    'breakfast',
     'baking',
     'staple-foods',
 ];
@@ -28,8 +30,10 @@ const SONSTIGES = 'other';
 const DEPARTMENT_DE_TO_EN = {
     'Obst/Gemüse': 'fruit/vegetables',
     'Frische Theke': 'fresh-counter',
+    'Bäckerei': 'bakery',
     'Non-Food': 'non-food',
     'Getränke': 'drinks',
+    'Frühstück': 'breakfast',
     'Backen': 'baking',
     'Grundnahrungsmittel': 'staple-foods',
 };
@@ -38,8 +42,10 @@ const DEPARTMENT_DE_TO_EN = {
 const DEPARTMENT_EN_TO_DE = {
     'fruit/vegetables': 'Obst/Gemüse',
     'fresh-counter':    'Frische Theke',
+    'bakery':           'Bäckerei',
     'non-food':         'Non-Food',
     'drinks':           'Getränke',
+    'breakfast':        'Frühstück',
     'baking':           'Backen',
     'staple-foods':     'Grundnahrungsmittel',
     'other':            'Sonstiges',
