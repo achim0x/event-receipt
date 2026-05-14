@@ -114,9 +114,6 @@ export async function renderRezeptListe(root) {
                     ${r.kategorie ? `<span class="tag">${escapeHtml(r.kategorie)}</span>` : ''}
                     ${tagsHtml}
                     ${r.zubereitungszeit ? `<p class="muted">⏱ ${escapeHtml(r.zubereitungszeit)}</p>` : ''}
-                    ${/* Auf Karten bewusst kein Link um die URL — die Karte selber ist
-                          schon ein <a>, und nested anchors brechen das HTML. */ ''}
-                    ${r.quelle ? `<p class="muted">📖 ${escapeHtml(r.quelle)}</p>` : ''}
                 </a>
             `;
         }).join('');
