@@ -25,6 +25,9 @@ JavaScript framework, no Composer.
 - SQLite 3 (no separate database server)
 - Vanilla ES modules (no bundler, no npm)
 
+**Authentication**
+To activate authentication set `const REQUIRE_AUTH_TOKEN` = true; at the end of /api/bootstrap.php
+
 ---
 
 ## Requirements
