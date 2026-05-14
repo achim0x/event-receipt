@@ -2,8 +2,10 @@
 declare(strict_types=1);
 
 require __DIR__ . '/bootstrap.php';
+require __DIR__ . '/translation.php';  // sanitize_text, normalize_single_unit, canonicalize_department
 
 const MAX_CART_BYTES = 1024 * 1024;  // 1 MB — snapshot kann groß werden
+const MAX_CUSTOM_ITEMS = 200;
 
 $method = $_SERVER['REQUEST_METHOD'];
 if ($method === 'POST') {
@@ -35,6 +37,54 @@ function sanitize_cart_items(mixed $items): array {
     return $out;
 }
 
+/**
+ * Sanitisiert die freien Zutaten der Einkaufsliste (Items die NICHT aus
+ * einem Rezept stammen). Schema pro Eintrag: {quantity, unit, name,
+ * department?}. Einheiten werden wie bei Rezept-Items normalisiert (kg→g,
+ * EL→g etc); unbekannte Einheiten landen 1:1 in der Ausgabe (kein 400,
+ * der Aggregator gruppiert „Stück Brötchen" und „Brötchen" dann eben in
+ * unterschiedlichen Buckets — kein Datenverlust). Department wird via
+ * canonicalize_department auf EN-Slug normalisiert oder weggelassen.
+ */
+function sanitize_custom_items(mixed $items): array {
+    if (!is_array($items)) return [];
+    $out = [];
+    foreach ($items as $it) {
+        if (!is_array($it)) continue;
+        $name = sanitize_text($it['name'] ?? '', MAX_INGREDIENT_NAME);
+        if ($name === '') continue;
+
+        $unit = sanitize_text($it['unit'] ?? '', MAX_UNIT_LEN);
+        $rawQty = $it['quantity'] ?? 0;
+        $quantity = is_numeric($rawQty) ? (float) $rawQty : 0.0;
+        if ($unit !== '') {
+            $norm = normalize_single_unit($quantity, $unit);
+            if ($norm !== null) {
+                [$quantity, $unit] = $norm;
+            }
+            // unbekannte Einheit: $unit bleibt was der User getippt hat
+        }
+
+        $clean = [
+            'quantity' => $quantity,
+            'unit' => $unit,
+            'name' => $name,
+        ];
+
+        $dept = sanitize_text($it['department'] ?? '', MAX_DEPT_LEN);
+        if ($dept !== '') {
+            $canon = canonicalize_department($dept);
+            if ($canon !== null && $canon !== '') {
+                $clean['department'] = $canon;
+            }
+        }
+
+        $out[] = $clean;
+        if (count($out) >= MAX_CUSTOM_ITEMS) break;
+    }
+    return $out;
+}
+
 function encode_snapshot(mixed $snapshot): string {
     // Snapshot ist Map<id, recipeData>. Leer → '{}', sonst JSON-encode.
     // Wir codieren ohne JSON_FORCE_OBJECT, weil PHP für int-Keys das Object-
@@ -45,14 +95,16 @@ function encode_snapshot(mixed $snapshot): string {
 }
 
 if ($method === 'GET') {
-    $stmt = $db->prepare('SELECT items, snapshot, updated_at FROM einkaufsliste_aktuell WHERE id = 1');
+    $stmt = $db->prepare('SELECT items, snapshot, custom_items, updated_at FROM einkaufsliste_aktuell WHERE id = 1');
     $stmt->execute();
     $row = $stmt->fetch();
     $items = $row ? json_decode($row['items'], true) : [];
     $snapshot = $row ? json_decode($row['snapshot'] ?? '{}', true) : [];
+    $custom = $row ? json_decode($row['custom_items'] ?? '[]', true) : [];
     json_response([
         'items' => is_array($items) ? $items : [],
         'snapshot' => is_array($snapshot) ? $snapshot : new stdClass,
+        'custom_items' => is_array($custom) ? $custom : [],
         'updated_at' => $row['updated_at'] ?? null,
     ]);
 }
@@ -72,24 +124,48 @@ if ($method === 'PUT') {
     }
     $clean = sanitize_cart_items($body['items']);
     $snapshot = $body['snapshot'] ?? [];
+    // custom_items ist optional — Bestandsclients die das Feld noch nicht
+    // schicken sollen den Cart-Update nicht versehentlich leeren. Daher:
+    // nur überschreiben wenn der Key explizit im Body ist.
+    $customProvided = array_key_exists('custom_items', $body);
+    $customClean = $customProvided ? sanitize_custom_items($body['custom_items']) : null;
 
-    $stmt = $db->prepare('
-        INSERT INTO einkaufsliste_aktuell (id, items, snapshot, updated_at)
-        VALUES (1, :items, :snapshot, CURRENT_TIMESTAMP)
-        ON CONFLICT(id) DO UPDATE SET
-            items = excluded.items,
-            snapshot = excluded.snapshot,
-            updated_at = CURRENT_TIMESTAMP
-    ');
-    $stmt->execute([
-        ':items' => json_encode($clean, JSON_UNESCAPED_UNICODE),
-        ':snapshot' => encode_snapshot($snapshot),
-    ]);
+    if ($customProvided) {
+        $stmt = $db->prepare('
+            INSERT INTO einkaufsliste_aktuell (id, items, snapshot, custom_items, updated_at)
+            VALUES (1, :items, :snapshot, :custom, CURRENT_TIMESTAMP)
+            ON CONFLICT(id) DO UPDATE SET
+                items = excluded.items,
+                snapshot = excluded.snapshot,
+                custom_items = excluded.custom_items,
+                updated_at = CURRENT_TIMESTAMP
+        ');
+        $stmt->execute([
+            ':items' => json_encode($clean, JSON_UNESCAPED_UNICODE),
+            ':snapshot' => encode_snapshot($snapshot),
+            ':custom' => json_encode($customClean, JSON_UNESCAPED_UNICODE),
+        ]);
+    } else {
+        $stmt = $db->prepare('
+            INSERT INTO einkaufsliste_aktuell (id, items, snapshot, updated_at)
+            VALUES (1, :items, :snapshot, CURRENT_TIMESTAMP)
+            ON CONFLICT(id) DO UPDATE SET
+                items = excluded.items,
+                snapshot = excluded.snapshot,
+                updated_at = CURRENT_TIMESTAMP
+        ');
+        $stmt->execute([
+            ':items' => json_encode($clean, JSON_UNESCAPED_UNICODE),
+            ':snapshot' => encode_snapshot($snapshot),
+        ]);
+    }
 
-    json_response([
+    $response = [
         'items' => $clean,
         'snapshot' => is_array($snapshot) ? $snapshot : new stdClass,
-    ]);
+    ];
+    if ($customProvided) $response['custom_items'] = $customClean;
+    json_response($response);
 }
 
 json_error('Method not allowed', 405);

@@ -15,7 +15,7 @@ import { renderPair } from './views/pair.js';
 // danach gelöscht.
 const LEGACY_STORAGE_KEY = 'rezepte.einkaufsliste.v1';
 
-let cartState = { items: [], snapshot: {} };
+let cartState = { items: [], snapshot: {}, customItems: [] };
 let cartInitialized = false;
 let saveTimer = null;
 const SAVE_DEBOUNCE_MS = 300;
@@ -55,9 +55,10 @@ async function loadCartFromServer() {
         const data = await api.getCart();
         cartState.items = Array.isArray(data.items) ? data.items : [];
         cartState.snapshot = normalizeSnapshot(data.snapshot);
+        cartState.customItems = Array.isArray(data.custom_items) ? data.custom_items : [];
     } catch (err) {
         console.error('Cart laden fehlgeschlagen:', err);
-        cartState = { items: [], snapshot: {} };
+        cartState = { items: [], snapshot: {}, customItems: [] };
     }
     updateBadge();
 }
@@ -69,23 +70,26 @@ async function initCart() {
         const data = await api.getCart();
         const serverItems = Array.isArray(data.items) ? data.items : [];
         const serverSnapshot = normalizeSnapshot(data.snapshot);
+        const serverCustom = Array.isArray(data.custom_items) ? data.custom_items : [];
 
         if (serverItems.length === 0 && legacy && legacy.length > 0) {
             // One-time-migration: legacy localStorage → Server (kein Snapshot)
             cartState.items = legacy;
             cartState.snapshot = {};
+            cartState.customItems = serverCustom;  // Server-Wert übernehmen (vermutlich [])
             try {
-                await api.putCart(cartState.items, {});
+                await api.putCart(cartState.items, {}, cartState.customItems);
             } catch (err) {
                 console.error('Legacy-Cart-Migration zum Server fehlgeschlagen:', err);
             }
         } else {
             cartState.items = serverItems;
             cartState.snapshot = serverSnapshot;
+            cartState.customItems = serverCustom;
         }
     } catch (err) {
         console.error('Cart-Init: Server-Fetch fehlgeschlagen, fallback auf legacy/leer:', err);
-        cartState = { items: legacy || [], snapshot: {} };
+        cartState = { items: legacy || [], snapshot: {}, customItems: [] };
     }
 
     clearLegacyCart();
@@ -98,7 +102,7 @@ function scheduleCartSave() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
         try {
-            await api.putCart(cartState.items, cartState.snapshot);
+            await api.putCart(cartState.items, cartState.snapshot, cartState.customItems);
         } catch (err) {
             console.error('Cart-Sync zum Server fehlgeschlagen:', err);
         }
@@ -141,6 +145,8 @@ export const cart = {
     clear() {
         cartState.items = [];
         cartState.snapshot = {};
+        // customItems bewusst NICHT mitleeren — die freien Zutaten gehören
+        // nicht zur Rezeptauswahl und ihr Reset hat seinen eigenen Button.
         updateBadge();
         scheduleCartSave();
     },
@@ -152,7 +158,33 @@ export const cart = {
             personen: Math.max(1, parseInt(r.personen, 10) || 1),
         }));
         cartState.snapshot = normalizeSnapshot(snapshot);
+        // customItems bleibt unverändert: gespeicherte Listen haben keine
+        // freien Zutaten (per Design), also würde Replace die lokalen
+        // löschen — wollen wir nicht.
         updateBadge();
+        scheduleCartSave();
+    },
+
+    // --- Freie Zutaten (unabhängig vom Rezeptauswahl-Cart) ----------------
+    /** Liste der freien Zutaten zurückgeben (Kopie). */
+    customItems: () => cartState.customItems.slice(),
+    /** Eine neue freie Zutat anhängen (kein Dedup — der Aggregator gruppiert ohnehin). */
+    addCustomItem(item) {
+        cartState.customItems.push({
+            quantity: Number.isFinite(item?.quantity) ? Number(item.quantity) : 0,
+            unit: String(item?.unit ?? '').trim(),
+            name: String(item?.name ?? '').trim(),
+            department: String(item?.department ?? '').trim() || undefined,
+        });
+        scheduleCartSave();
+    },
+    removeCustomItem(index) {
+        if (index < 0 || index >= cartState.customItems.length) return;
+        cartState.customItems.splice(index, 1);
+        scheduleCartSave();
+    },
+    clearCustomItems() {
+        cartState.customItems = [];
         scheduleCartSave();
     },
     /** Aktuellen Stand vom Server neu laden (z.B. wenn ein anderer Tab/User editiert hat) */

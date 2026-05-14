@@ -2,7 +2,7 @@ import { api } from '../api.js';
 import { cart } from '../app.js';
 import { displayUnit } from '../units.js';
 import { renderRezeptHtml, downloadRecipesAsText, loadCartRecipes } from './rezepte_print.js';
-import { aggregateIngredients, aggregateSpices, aggregateEquipment, displayDepartment } from '../aggregate.js';
+import { aggregateIngredients, aggregateSpices, aggregateEquipment, displayDepartment, VALID_DEPARTMENTS, canonicalizeDepartment } from '../aggregate.js';
 import * as checksQueue from '../checks_queue.js';
 
 function escapeHtml(s) {
@@ -162,6 +162,58 @@ export async function renderEinkaufsliste(root) {
         return cachedRecipes;
     }
 
+    // Einheiten-Optionen fürs Free-Item-Form. Werte gehen ans Backend
+    // unverändert; Server normalisiert (kg→g etc).
+    const FREE_UNIT_OPTIONS = ['', 'g', 'kg', 'ml', 'L', 'EL', 'TL', 'Stück', 'Packung'];
+
+    function renderCustomItemsSection() {
+        const customItems = cart.customItems();
+
+        const unitOpts = FREE_UNIT_OPTIONS.map(u => {
+            const label = u === '' ? '— Einheit —' : u;
+            return `<option value="${escapeHtml(u)}">${escapeHtml(label)}</option>`;
+        }).join('');
+
+        const deptOpts = `<option value="">— Abteilung (optional) —</option>` +
+            VALID_DEPARTMENTS.map(slug =>
+                `<option value="${escapeHtml(slug)}">${escapeHtml(displayDepartment(slug))}</option>`
+            ).join('');
+
+        const list = customItems.length
+            ? `<ul class="custom-items-list">${customItems.map((it, idx) => {
+                const q = formatQuantity(it.quantity);
+                const u = displayUnit(it.unit);
+                const parts = [q, u].filter(Boolean).join(' ');
+                const deptLabel = it.department ? displayDepartment(it.department) : '';
+                return `<li data-idx="${idx}">
+                    <span class="custom-item-text">
+                        ${parts ? `<strong>${escapeHtml(parts)}</strong> ` : ''}${escapeHtml(it.name)}
+                        ${deptLabel ? `<span class="dept-tag">${escapeHtml(deptLabel)}</span>` : ''}
+                    </span>
+                    <button type="button" class="btn small danger icon-only custom-item-remove" title="Entfernen">×</button>
+                </li>`;
+            }).join('')}</ul>`
+            : `<p class="muted">Noch keine freien Zutaten — über das Formular oben hinzufügen.</p>`;
+
+        return `
+            <details class="custom-items-section" ${customItems.length ? 'open' : ''}>
+                <summary>Eigene Zutaten <span class="muted">(${customItems.length})</span></summary>
+                <div class="custom-items-body">
+                    <p class="muted small">Diese Zutaten gehören nicht zu einem Rezept (z.B. Toilettenpapier, Milch). Sie erscheinen mit in der aggregierten Zutatenliste — werden aber <strong>nicht</strong> mit gespeichert wenn du oben „Speichern als" benutzt.</p>
+                    <form id="custom-add-form" class="custom-add-form">
+                        <input type="text" id="custom-qty" class="qty" inputmode="decimal" placeholder="Menge">
+                        <select id="custom-unit" class="unit">${unitOpts}</select>
+                        <input type="text" id="custom-name" class="name" placeholder="Zutat" maxlength="200" required>
+                        <select id="custom-dept" class="dept">${deptOpts}</select>
+                        <button type="submit" class="btn primary small needs-network">+ Hinzufügen</button>
+                    </form>
+                    ${list}
+                    ${customItems.length ? `<button type="button" class="btn small" id="custom-clear">Alle freien Zutaten entfernen</button>` : ''}
+                </div>
+            </details>
+        `;
+    }
+
     function renderSavedListsTable() {
         if (!savedLists.length) {
             return `<p class="muted">Noch keine Listen gespeichert.</p>`;
@@ -196,6 +248,7 @@ export async function renderEinkaufsliste(root) {
     function draw() {
         cachedRecipes = null;
         const items = cart.all();
+        const customItems = cart.customItems();
         const snapshot = cart.snapshot();
         const snapshotCount = snapshot ? Object.keys(snapshot).length : 0;
 
@@ -216,6 +269,8 @@ export async function renderEinkaufsliste(root) {
                         </div>
                     </details>
 
+                    ${renderCustomItemsSection()}
+
                     ${items.length ? `
                         <h2>Aktuelle Auswahl</h2>
                         <table class="cart-table">
@@ -235,17 +290,23 @@ export async function renderEinkaufsliste(root) {
                                 <input type="text" id="save-name" maxlength="80" placeholder="z.B. Wochenplan KW18">
                             </label>
                             <button type="button" class="btn needs-network" id="save-as">💾 Speichern</button>
-                        </div>
-                        <div class="row-buttons">
-                            <button type="button" class="btn primary" id="show-zutaten">Zutaten</button>
-                            <button type="button" class="btn" id="show-gewuerze">Gewürze</button>
-                            <button type="button" class="btn" id="show-equipment">Küchenausstattung</button>
-                            <button type="button" class="btn" id="show-rezepte">Komplette Rezepte</button>
-                            <button type="button" class="btn" id="clear">Alle entfernen</button>
+                            <p class="muted small save-as-hint">Die freien Zutaten oben werden bewusst nicht mit gespeichert.</p>
                         </div>
                     ` : `
                         <p class="muted">Noch keine Rezepte ausgewählt. <a href="." data-link>Rezepte ansehen</a></p>
                     `}
+
+                    ${(items.length || customItems.length) ? `
+                        <div class="row-buttons">
+                            <button type="button" class="btn primary" id="show-zutaten">Zutaten</button>
+                            ${items.length ? `
+                                <button type="button" class="btn" id="show-gewuerze">Gewürze</button>
+                                <button type="button" class="btn" id="show-equipment">Küchenausstattung</button>
+                                <button type="button" class="btn" id="show-rezepte">Komplette Rezepte</button>
+                                <button type="button" class="btn" id="clear">Alle Rezepte entfernen</button>
+                            ` : ''}
+                        </div>
+                    ` : ''}
                 </div>
                 <div id="ergebnis"></div>
             </section>
@@ -267,6 +328,42 @@ export async function renderEinkaufsliste(root) {
                 draw();
             });
         }
+
+        // Eigene-Zutaten-Sektion: Form + Liste sind unabhängig vom Rezept-Cart
+        const customAddForm = root.querySelector('#custom-add-form');
+        if (customAddForm) {
+            customAddForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const name = root.querySelector('#custom-name').value.trim();
+                if (!name) return;
+                const qtyRaw = root.querySelector('#custom-qty').value.trim().replace(',', '.');
+                const quantity = qtyRaw === '' ? 0 : (parseFloat(qtyRaw) || 0);
+                const unit = root.querySelector('#custom-unit').value;
+                const department = canonicalizeDepartment(root.querySelector('#custom-dept').value);
+                cart.addCustomItem({ quantity, unit, name, department });
+                draw();
+            });
+        }
+        root.querySelectorAll('.custom-items-list li[data-idx] .custom-item-remove').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const idx = parseInt(btn.closest('li').dataset.idx, 10);
+                cart.removeCustomItem(idx);
+                draw();
+            });
+        });
+        const customClearBtn = root.querySelector('#custom-clear');
+        if (customClearBtn) {
+            customClearBtn.addEventListener('click', () => {
+                if (!confirm('Alle freien Zutaten entfernen?')) return;
+                cart.clearCustomItems();
+                draw();
+            });
+        }
+
+        // Wenn nur freie Zutaten existieren, zeigt der Header nur den
+        // Zutaten-Button und den Cleared-Status. Verdrahten was vorhanden ist.
+        const zutatenBtn = root.querySelector('#show-zutaten');
+        if (zutatenBtn) zutatenBtn.addEventListener('click', generateZutaten);
 
         if (!items.length) return;
 
@@ -315,7 +412,7 @@ export async function renderEinkaufsliste(root) {
         saveBtn.addEventListener('click', doSaveAs);
         saveInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doSaveAs(); } });
 
-        root.querySelector('#show-zutaten').addEventListener('click', generateZutaten);
+        // #show-zutaten ist bereits oben verdrahtet (auch im 0-Rezepte-Fall).
         root.querySelector('#show-gewuerze').addEventListener('click', generateGewuerze);
         root.querySelector('#show-equipment').addEventListener('click', generateEquipment);
         root.querySelector('#show-rezepte').addEventListener('click', generateRezepte);
@@ -396,7 +493,20 @@ export async function renderEinkaufsliste(root) {
                 loadRecipes(),
                 safeGetChecks(),
             ]);
-            const { liste } = aggregateIngredients(recipes);
+
+            // Freie Zutaten als synthetisches Rezept (personen=1) einfüttern.
+            // aggregateIngredients gruppiert dann automatisch nach Department
+            // und mergt name+unit-Duplikate (z.B. „Milch 200ml" aus einem
+            // Rezept + „Milch 500ml" als freie Zutat → ein Eintrag „Milch 700ml").
+            const customItems = cart.customItems();
+            const recipesForAgg = customItems.length
+                ? [
+                    { rezept: { daten: { ingredients: [{ items: customItems }] } }, personen: 1 },
+                    ...recipes,
+                ]
+                : recipes;
+
+            const { liste } = aggregateIngredients(recipesForAgg);
             const checkedSet = new Set(checks.zutaten || []);
             const warning = offlineCoverageWarning(recipes);
 

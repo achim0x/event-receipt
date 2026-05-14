@@ -1112,6 +1112,61 @@ Wer die App im Internet (statt LAN) betreibt:
 
 ## 12. Changelog
 
+### 2026-05-14 — Freie Zutaten auf der Einkaufsliste
+
+Neuer eigenständiger Abschnitt „Eigene Zutaten" auf der
+Einkaufslisten-Seite. Damit kann man Dinge wie Toilettenpapier,
+Milch oder Klopapier direkt in die Aggregat-Zutatenliste werfen,
+ohne sie an ein Rezept zu hängen. Bewusst ausgeklammert vom
+„Speichern als"-Pfad: gespeicherte Listen sind Rezeptauswahl-
+Snapshots, die freien Zutaten wechseln pro Einkaufszyklus.
+
+- **Schema**: neue Spalte `einkaufsliste_aktuell.custom_items`
+  (TEXT NOT NULL DEFAULT '[]'). Einträge sind
+  `{quantity, unit, name, department?}` — gleiche Form wie ein
+  Rezept-Ingredient-Item.
+- **Backend** (`api/cart.php`):
+  - GET liefert `custom_items: [...]` zusätzlich zu `items` und
+    `snapshot`.
+  - PUT akzeptiert das Feld optional. Wenn der Body es nicht
+    enthält, bleibt der gespeicherte Wert erhalten (verhindert
+    versehentliches Löschen durch Bestands-Clients, die das Feld
+    noch nicht kennen). Sanitisierung pro Item:
+    `normalize_single_unit` (kg→g etc), `canonicalize_department`,
+    `sanitize_text` für Name; ungültige/leere Einträge fallen weg.
+  - `saved_lists.php` bleibt unberührt — saved lists tragen
+    weiterhin nur Rezeptauswahl + Snapshot, die freien Zutaten
+    werden bewusst nicht mit gespeichert.
+- **Frontend Cart-State** (`assets/app.js`):
+  - `cartState.customItems` neben items/snapshot.
+  - `cart.customItems()`, `cart.addCustomItem(obj)`,
+    `cart.removeCustomItem(idx)`, `cart.clearCustomItems()`.
+  - `cart.clear()` und `cart.replaceAll(items, snapshot)` lassen
+    die freien Zutaten bewusst stehen — sie gehören nicht zur
+    Rezeptauswahl, also überlebt sie das Laden einer gespeicherten
+    Liste und das Leeren des Rezept-Carts.
+  - Server-Sync via `scheduleCartSave` nimmt das Feld mit.
+- **UI** (`assets/views/einkaufsliste.js`):
+  - Neue collapsible Sektion zwischen den gespeicherten Listen
+    und der Rezeptauswahl. Add-Form mit Menge/Einheit/Name/
+    Department; Liste mit ×-Buttons pro Eintrag; ein
+    „Alle freien Zutaten entfernen"-Button.
+  - „Zutaten"-Action-Button erscheint jetzt auch wenn der Cart
+    nur freie Zutaten enthält (keine Rezepte). Die anderen
+    Action-Buttons (Gewürze, Equipment, komplette Rezepte) bleiben
+    rezept-abhängig.
+  - Aggregation: freie Zutaten werden als synthetisches Rezept
+    (`personen=1`) vor die echten Rezepte gehängt; das nutzt
+    `aggregateIngredients` 1:1, also funktioniert Department-
+    Gruppierung und das Mergen gleicher `name+unit` zwischen
+    freier Zutat und Rezept-Zutat automatisch.
+- **Hinweis-Text** unter „Speichern als" macht explizit dass
+  freie Zutaten beim Speichern wegfallen.
+
+`SW CACHE_VERSION` v18 → v19.
+
+---
+
 ### 2026-05-14 — Sortier-Dropdown nach Bewertung
 
 In der Übersichts-Toolbar gibt es jetzt ein viertes Dropdown

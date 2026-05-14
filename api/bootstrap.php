@@ -158,6 +158,16 @@ foreach (['einkaufsliste_aktuell', 'einkaufsliste_gespeichert'] as $tbl) {
     }
 }
 
+// einkaufsliste_aktuell.custom_items: freie Zutaten die NICHT zu einem
+// Rezept gehören (Klopapier, Milch, Klopapier-Milch ...). Werden absichtlich
+// nicht in einkaufsliste_gespeichert übernommen, weil sie sich pro
+// Einkaufszyklus ändern und nicht zur „Was war im Warenkorb"-Aufzeichnung
+// gehören. JSON-Array, Schema = [{quantity, unit, name, department?}].
+$aktuellCols = $db->query("PRAGMA table_info(einkaufsliste_aktuell)")->fetchAll(PDO::FETCH_COLUMN, 1);
+if (!in_array('custom_items', $aktuellCols, true)) {
+    $db->exec("ALTER TABLE einkaufsliste_aktuell ADD COLUMN custom_items TEXT NOT NULL DEFAULT '[]'");
+}
+
 // Abgehakte Einträge (geteilt zwischen allen Nutzern).
 // Schlüssel ist normalisiert (lowercase) als 'name||unit' — Match überlebt
 // Personenzahl-Änderungen (weil quantity nicht im Key steckt).

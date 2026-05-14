@@ -112,11 +112,16 @@ export const api = {
         return handle(res);
     },
 
-    async putCart(items, snapshot = {}) {
+    async putCart(items, snapshot = {}, customItems = undefined) {
+        // custom_items nur senden wenn der Aufrufer es explizit übergibt —
+        // sonst (z.B. Bestands-Aufrufer ohne dieses Feld) bleibt der
+        // Server-Wert erhalten. Siehe sanitize_custom_items in cart.php.
+        const body = { items, snapshot };
+        if (customItems !== undefined) body.custom_items = customItems;
         const res = await authFetch(`${BASE}/cart.php`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ items, snapshot }),
+            body: JSON.stringify(body),
         });
         return handle(res);
     },

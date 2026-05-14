@@ -408,6 +408,74 @@ textarea#editor {
     border-color: var(--accent);
 }
 
+/* „Eigene Zutaten"-Sektion auf der Einkaufsliste */
+.custom-items-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0 1.5rem;
+}
+.custom-items-section > summary {
+    cursor: pointer;
+    font-weight: 600;
+    padding: 0.25rem 0;
+    user-select: none;
+}
+.custom-items-section > summary:hover { color: var(--accent); }
+.custom-items-section .custom-items-body { margin-top: 0.75rem; }
+.custom-add-form {
+    display: grid;
+    grid-template-columns: 5rem 7rem 1fr 11rem auto;
+    gap: 0.5rem;
+    align-items: center;
+    margin: 0.5rem 0 1rem;
+}
+.custom-add-form input,
+.custom-add-form select {
+    padding: 0.5rem 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.95rem;
+    background: var(--surface);
+}
+.custom-items-list {
+    list-style: none;
+    padding: 0;
+    margin: 0.5rem 0;
+}
+.custom-items-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.4rem 0;
+    border-bottom: 1px dashed var(--border);
+}
+.custom-items-list li:last-child { border-bottom: none; }
+.custom-item-text { flex: 1; }
+
+.save-as-row .save-as-hint {
+    flex-basis: 100%;
+    margin: 0.3rem 0 0;
+}
+
+@media (max-width: 700px) {
+    .custom-add-form {
+        grid-template-columns: 5rem 1fr auto;
+        grid-template-areas:
+            "qty unit unit"
+            "name name name"
+            "dept dept dept"
+            "submit submit submit";
+    }
+    .custom-add-form .qty   { grid-area: qty; }
+    .custom-add-form .unit  { grid-area: unit; }
+    .custom-add-form .name  { grid-area: name; }
+    .custom-add-form .dept  { grid-area: dept; }
+    .custom-add-form button { grid-area: submit; }
+}
+
 /* Sterne-Anzeige (read-only): goldgelbe Filled-Stars + graue Empty-Stars
    übereinander gestapelt damit die Breite konstant bleibt. */
 .stars {

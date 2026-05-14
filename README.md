@@ -19,6 +19,7 @@ JavaScript framework, no Composer.
 - **1–5 star rating** per recipe (optional). Stars appear on the overview cards and in the recipe detail; editable via the form editor. Stored as `rating` in the JSON blob and as a denormalized column for cheap display.
 - **Backup & migration**: download a single recipe as JSON from its detail view, or export/import the entire collection as one JSON file (suitable for backup or moving to another instance). Batch import validates each recipe individually and reports per-record failures while still importing the rest.
 - **Persistent check-off state**: ticked items on the shopping list stay ticked across reloads and are shared across devices (great for "I already got the flour" coordination); survives serving-size changes
+- **Free shopping-list items**: add things like toilet paper or milk directly to the shopping list without tying them to a recipe. They appear in the aggregated ingredients list (grouped by department if specified) but are intentionally excluded from named saved lists
 
 **Tech Stack**
 - PHP 8.x (PDO/SQLite, JSON)
