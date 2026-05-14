@@ -13,7 +13,7 @@
 // Beim Deploy: CACHE_VERSION hochziehen → alle alten Caches werden
 // beim activate-Event aufgeräumt.
 
-const CACHE_VERSION = 'v17';
+const CACHE_VERSION = 'v18';
 const PRECACHE = `precache-${CACHE_VERSION}`;
 const RUNTIME = `runtime-${CACHE_VERSION}`;
 

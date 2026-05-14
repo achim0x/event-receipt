@@ -58,6 +58,7 @@ function handleGetList(PDO $db): void {
     $suche = trim((string) ($_GET['suche'] ?? ''));
     $kategorie = trim((string) ($_GET['kategorie'] ?? ''));
     $tagFilter = trim((string) ($_GET['tag'] ?? ''));
+    $sort = trim((string) ($_GET['sort'] ?? ''));
 
     $sql = 'SELECT id, titel, kategorie, quelle, zubereitungszeit, tags, rating, erstellt_am FROM rezepte WHERE 1=1';
     $params = [];
@@ -81,7 +82,21 @@ function handleGetList(PDO $db): void {
         $sql .= ' AND tags LIKE :tag';
         $params[':tag'] = '%,' . $canon . ',%';
     }
-    $sql .= ' ORDER BY titel COLLATE NOCASE ASC';
+
+    // Sortierung. Whitelist statt Pass-Through, damit kein User-String in den
+    // ORDER BY clause läuft. Bei rating-Sort gewinnt höher und Titel ist
+    // Tie-Breaker für stabile Reihenfolge zwischen gleich bewerteten Rezepten.
+    switch ($sort) {
+        case 'rating':
+        case 'rating-desc':
+            $sql .= ' ORDER BY rating DESC, titel COLLATE NOCASE ASC';
+            break;
+        case 'title':
+        case '':
+        default:
+            $sql .= ' ORDER BY titel COLLATE NOCASE ASC';
+            break;
+    }
 
     $stmt = $db->prepare($sql);
     $stmt->execute($params);

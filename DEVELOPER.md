@@ -362,6 +362,7 @@ Query-Parameter:
 - `?suche=<text>` — Volltextsuche auf `titel` (LIKE %x%)
 - `?kategorie=<text>` — exakter Kategorie-Filter
 - `?tag=<slug>` — Filter auf Diät-Tags (`vegan`, `vegetarian` oder DE-Alias `vegetarisch`). Unbekannte Werte liefern leere Liste.
+- `?sort=title|rating` — Default `title` (alphabetisch). `rating` sortiert höchste Bewertung zuerst; Titel ist Tie-Breaker. Whitelist im Backend; unbekannte Werte fallen still auf Default zurück.
 
 ```json
 [
@@ -1110,6 +1111,25 @@ Wer die App im Internet (statt LAN) betreibt:
 ---
 
 ## 12. Changelog
+
+### 2026-05-14 — Sortier-Dropdown nach Bewertung
+
+In der Übersichts-Toolbar gibt es jetzt ein viertes Dropdown
+„Sortierung" mit zwei Modi:
+
+- `title` — alphabetisch (Default, wie bisher).
+- `rating` — höchste Bewertung zuerst, mit Titel als Tie-Breaker
+  damit gleich-bewertete Rezepte stabil sortiert sind.
+
+API: `GET /api/rezepte.php?sort=title|rating`. Backend prüft per
+Whitelist (`switch`-Statement), unbekannte Werte fallen still
+auf Default-Title-Sort zurück — kein User-Input erreicht den
+ORDER-BY-Clause. Verifiziert mit `?sort=garbage; DROP TABLE rezepte`
+URL-encoded → 200 mit normaler Titel-Sortierung, DB intakt.
+
+`SW CACHE_VERSION` v17 → v18.
+
+---
 
 ### 2026-05-14 — 1–5 Sterne-Rating pro Rezept
 

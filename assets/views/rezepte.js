@@ -70,6 +70,10 @@ export async function renderRezeptListe(root) {
                     <option value="">Alle Etiketten</option>
                     ${VALID_TAGS.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(displayTag(t))}</option>`).join('')}
                 </select>
+                <select id="sort" title="Sortierung">
+                    <option value="title">Titel A–Z</option>
+                    <option value="rating">Bewertung ★ hoch → niedrig</option>
+                </select>
             </div>
             <div id="liste" class="card-grid"><p class="muted">Lade…</p></div>
         </section>
@@ -78,6 +82,7 @@ export async function renderRezeptListe(root) {
     const sucheEl = root.querySelector('#suche');
     const katEl = root.querySelector('#kategorie');
     const tagEl = root.querySelector('#tag');
+    const sortEl = root.querySelector('#sort');
     const listeEl = root.querySelector('#liste');
 
     let kategorien = new Set();
@@ -86,12 +91,14 @@ export async function renderRezeptListe(root) {
         const suche = sucheEl.value.trim();
         const kategorie = katEl.value;
         const tag = tagEl.value;
+        const sort = sortEl.value;
         try {
-            const rezepte = await api.listRezepte({ suche, kategorie, tag });
+            const rezepte = await api.listRezepte({ suche, kategorie, tag, sort });
             renderListe(rezepte);
             // Kategorien beim ersten Laden ohne Filter erfassen — Tag-Auswahl
-            // selbst soll die Kategorien-Liste nicht verkleinern, denn sonst
-            // bleibt eine ehemals ausgewählte Kategorie nicht auswählbar.
+            // bzw. Sort selber soll die Kategorien-Liste nicht verkleinern,
+            // denn sonst bleibt eine ehemals ausgewählte Kategorie nicht
+            // auswählbar.
             if (!suche && !kategorie && !tag) {
                 kategorien = new Set(rezepte.map(r => r.kategorie).filter(Boolean));
                 renderKategorien();
@@ -135,6 +142,7 @@ export async function renderRezeptListe(root) {
     sucheEl.addEventListener('input', debounce(loadAndRender, 200));
     katEl.addEventListener('change', loadAndRender);
     tagEl.addEventListener('change', loadAndRender);
+    sortEl.addEventListener('change', loadAndRender);
 
     await loadAndRender();
 }
