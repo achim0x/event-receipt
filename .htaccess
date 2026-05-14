@@ -1,5 +1,12 @@
 RewriteEngine On
 
+# Authorization-Header an PHP durchschleifen. mod_php sieht ihn standardmäßig
+# nicht in $_SERVER (Apache strippt ihn). Diese Rule legt ihn als CGI-Env-Variable
+# bereit, sodass current_geraet() ihn aus $_SERVER['HTTP_AUTHORIZATION'] (oder
+# REDIRECT_HTTP_AUTHORIZATION) lesen kann — auch mit PHP-FPM.
+RewriteCond %{HTTP:Authorization} ^(.+)
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%1]
+
 # --- Block direkten Zugriff auf sensitive Pfade/Dateien ----------------------
 # Verhindert dass die SQLite-DB, JSON-Konfigs oder versteckte Files
 # direkt über HTTP abgerufen werden können. data/ braucht für Apache
@@ -52,6 +59,23 @@ RewriteRule ^ index.php [L]
     # Server-Signature/Apache-Version: Apache-Default-Setting (in
     # apache2.conf via ServerTokens / ServerSignature) — kann hier
     # nicht überschrieben werden.
+</IfModule>
+
+# --- PWA-spezifische Settings -----------------------------------------------
+<IfModule mod_mime.c>
+    # PWA-Manifest hat einen eigenen MIME-Type — sonst liefert Apache es
+    # als text/plain aus, was manche Browser-Validatoren stört
+    AddType application/manifest+json .webmanifest
+</IfModule>
+
+<IfModule mod_headers.c>
+    # Service Worker selbst MUSS bei jedem Besuch neu geprüft werden, sonst
+    # bleibt die App auf alter Version hängen wenn der Browser ihn aggressiv
+    # cached. Spec verlangt eh ein Re-Check innerhalb 24h, aber explizit ist
+    # zuverlässiger über Browser-Versionen hinweg.
+    <FilesMatch "^sw\.js$">
+        Header set Cache-Control "no-cache, max-age=0, must-revalidate"
+    </FilesMatch>
 </IfModule>
 
 # --- Directory-Listing prinzipiell aus --------------------------------------

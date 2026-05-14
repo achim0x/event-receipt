@@ -152,3 +152,148 @@ $db->exec("
         PRIMARY KEY (kategorie, schluessel)
     );
 ");
+
+// --- Auth-Infrastructure ---------------------------------------------------
+// Geräte-Tabelle für Token-basierte Authentifizierung.
+$db->exec("
+    CREATE TABLE IF NOT EXISTS geraete (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token_hash TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        typ TEXT NOT NULL DEFAULT 'mobile',
+        erstellt_am DATETIME DEFAULT CURRENT_TIMESTAMP,
+        zuletzt_gesehen DATETIME,
+        aktiv INTEGER NOT NULL DEFAULT 1
+    );
+");
+
+// Kurz-lebige Pairing-Codes für „neues Gerät koppeln". Web-UI generiert
+// einen Code, Mobile löst ihn ein und bekommt dafür den echten Token.
+// expires_at als ISO-String, wird beim Einlösen geprüft.
+$db->exec("
+    CREATE TABLE IF NOT EXISTS pairing_codes (
+        code TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        typ TEXT NOT NULL,
+        erstellt_am DATETIME DEFAULT CURRENT_TIMESTAMP,
+        expires_at DATETIME NOT NULL
+    );
+");
+
+// --- Auth-Helpers ----------------------------------------------------------
+function hash_token(string $token): string {
+    // Token sind hochentropische 32-Byte-Zufallswerte → SHA-256 ist genug.
+    // Wir speichern nur den Hash, der Klartext-Token landet nie in der DB.
+    return hash('sha256', $token);
+}
+
+/**
+ * Liefert das aktuelle Gerät (id, name, typ) oder null wenn kein gültiger
+ * Token präsentiert wurde. Akzeptiert sowohl `Authorization: Bearer <token>`
+ * (Mobile-PWA) als auch ein HttpOnly-Cookie `rezepte_session` (Web-UI).
+ * Aktualisiert `zuletzt_gesehen` best-effort.
+ */
+function current_geraet(): ?array {
+    global $db;
+    $token = null;
+
+    // Authorization-Header kann unter mod_php aus $_SERVER fehlen — Apache
+    // strippt ihn vor PHP. Fallback-Reihenfolge: $_SERVER (PHP-FPM oder mit
+    // RewriteRule durchgeschleift) → REDIRECT_HTTP_AUTHORIZATION (Rewrite-
+    // Sideeffect) → apache_request_headers() (nur mit mod_php verfügbar).
+    $auth = $_SERVER['HTTP_AUTHORIZATION']
+        ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
+        ?? '';
+    if ($auth === '' && function_exists('apache_request_headers')) {
+        $h = apache_request_headers();
+        // Header-Lookup case-insensitive
+        foreach ($h as $k => $v) {
+            if (strcasecmp($k, 'Authorization') === 0) {
+                $auth = $v;
+                break;
+            }
+        }
+    }
+    if ($auth !== '' && preg_match('/^Bearer\s+([a-f0-9]{64})$/i', $auth, $m)) {
+        $token = strtolower($m[1]);
+    }
+    if ($token === null && !empty($_COOKIE['rezepte_session'])) {
+        $cookie = (string) $_COOKIE['rezepte_session'];
+        if (preg_match('/^[a-f0-9]{64}$/i', $cookie)) {
+            $token = strtolower($cookie);
+        }
+    }
+    if ($token === null) return null;
+
+    try {
+        $stmt = $db->prepare('SELECT id, name, typ, aktiv FROM geraete WHERE token_hash = :h LIMIT 1');
+        $stmt->execute([':h' => hash_token($token)]);
+        $row = $stmt->fetch();
+        if (!$row || (int) $row['aktiv'] !== 1) return null;
+
+        // Best-effort: zuletzt_gesehen aktualisieren. Bei Fehler nicht eskalieren.
+        try {
+            $up = $db->prepare('UPDATE geraete SET zuletzt_gesehen = CURRENT_TIMESTAMP WHERE id = :id');
+            $up->execute([':id' => $row['id']]);
+        } catch (Throwable $e) {
+            error_log('[rezepte-app] zuletzt_gesehen update failed: ' . $e->getMessage());
+        }
+        return $row;
+    } catch (Throwable $e) {
+        error_log('[rezepte-app] current_geraet lookup failed: ' . $e->getMessage());
+        return null;
+    }
+}
+
+/**
+ * HttpOnly-Session-Cookie für die Web-UI setzen. SameSite=Strict + Secure
+ * wenn HTTPS aktiv ist (auto-detect). Path = APP_BASE.
+ */
+function set_session_cookie(string $token): void {
+    $base = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/'), '/\\') . '/';
+    // Wir liegen unter /api/ — der Cookie soll aber für den App-Pfad gelten,
+    // nicht nur fürs API-Subdir. Daher dirname von dirname.
+    $appBase = rtrim(dirname(rtrim($base, '/')), '/\\') . '/';
+    $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || ($_SERVER['SERVER_PORT'] ?? '') === '443';
+    setcookie('rezepte_session', $token, [
+        'expires' => 0,                        // Session-Cookie (Browser-Schließung)
+        'path' => $appBase,
+        'secure' => $secure,
+        'httponly' => true,
+        'samesite' => 'Strict',
+    ]);
+}
+
+function clear_session_cookie(): void {
+    $base = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/'), '/\\') . '/';
+    $appBase = rtrim(dirname(rtrim($base, '/')), '/\\') . '/';
+    setcookie('rezepte_session', '', [
+        'expires' => time() - 3600,
+        'path' => $appBase,
+        'httponly' => true,
+        'samesite' => 'Strict',
+    ]);
+}
+
+/**
+ * Blockt den Request mit 401 wenn REQUIRE_AUTH_TOKEN aktiv ist und kein
+ * gültiges Gerät authentifiziert ist. Setup- und Pairing-Endpoints können
+ * sich vor dem `require bootstrap.php` mit `define('SKIP_AUTH', true);`
+ * vom Check ausnehmen.
+ */
+function ensure_authenticated(): void {
+    if (!REQUIRE_AUTH_TOKEN) return;
+    if (defined('SKIP_AUTH') && SKIP_AUTH) return;
+    if (current_geraet() !== null) return;
+    http_response_code(401);
+    echo json_encode(['error' => 'Authentication required'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// Auth-Pflicht ist opt-in. Default: aus, damit das aktuelle LAN-/Single-
+// Household-Modell weiter funktioniert. Wer die App ins Internet stellt,
+// aktiviert das nach Phase 6 (Setup-UI) auf true.
+const REQUIRE_AUTH_TOKEN = false;
+
+ensure_authenticated();

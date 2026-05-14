@@ -2,6 +2,8 @@ import { api } from '../api.js';
 import { cart } from '../app.js';
 import { displayUnit } from '../units.js';
 import { renderRezeptHtml, downloadRecipesAsText, loadCartRecipes } from './rezepte_print.js';
+import { aggregateIngredients, aggregateSpices, aggregateEquipment } from '../aggregate.js';
+import * as checksQueue from '../checks_queue.js';
 
 function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, (c) => ({
@@ -53,39 +55,6 @@ function listToText(liste) {
     return lines.join('\n').trimEnd() + '\n';
 }
 
-function aggregateSpices(recipes) {
-    const seen = new Map();
-    for (const { rezept } of recipes) {
-        const spices = (rezept.daten?.spices || []).filter(Boolean);
-        for (const s of spices) {
-            const trimmed = String(s).trim();
-            if (!trimmed) continue;
-            const key = trimmed.toLowerCase();
-            if (!seen.has(key)) seen.set(key, trimmed);
-        }
-    }
-    return [...seen.values()].sort((a, b) => a.localeCompare(b, 'de'));
-}
-
-function aggregateEquipment(recipes) {
-    const map = new Map();
-    for (const { rezept } of recipes) {
-        const items = Array.isArray(rezept.daten?.kitchen_equipment)
-            ? rezept.daten.kitchen_equipment : [];
-        for (const e of items) {
-            const name = String(e.name ?? '').trim();
-            if (!name) continue;
-            const qty = typeof e.quantity === 'number' && e.quantity > 0 ? e.quantity : 1;
-            const key = name.toLowerCase();
-            const prev = map.get(key);
-            if (!prev || prev.quantity < qty) {
-                map.set(key, { quantity: qty, name });
-            }
-        }
-    }
-    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'de'));
-}
-
 function spicesToText(spices) {
     if (!spices.length) return '';
     return spices.map(s => '- ' + s).join('\n') + '\n';
@@ -115,10 +84,17 @@ function wireCheckboxes(container, checkedSet) {
         if (checkedSet.has(schluessel)) cb.checked = true;
 
         cb.addEventListener('change', async () => {
+            // Erst in die IDB-Queue (persistent über Reloads, überlebt Offline).
+            // Online wird sofort geflusht; offline bleibt's drin bis zum nächsten
+            // online-Event (siehe app.js).
             try {
-                await api.setCheck(kategorie, schluessel, cb.checked);
+                await checksQueue.enqueue(kategorie, schluessel, cb.checked);
             } catch (err) {
-                console.error('Check-Sync zum Server fehlgeschlagen:', err);
+                console.error('Check konnte nicht queued werden:', err);
+                return;
+            }
+            if (navigator.onLine) {
+                checksQueue.flush(api).catch(err => console.warn('Sync failed:', err));
             }
         });
     });
@@ -133,6 +109,42 @@ export async function renderEinkaufsliste(root) {
     // Server-State frisch holen — sonst sieht man Änderungen anderer User nicht
     await cart.refresh();
     await refreshSavedLists();
+
+    // Hinweis für den User wenn nicht alle Cart-Rezepte geladen werden
+    // konnten (typisch: offline, Rezept noch nicht im Service-Worker-Cache).
+    // Leerer String wenn vollständig — caller injiziert das direkt ins Template.
+    function offlineCoverageWarning(recipes) {
+        const total = cart.all().length;
+        const have = recipes.length;
+        if (have === total) return '';
+        if (have === 0) {
+            return `<p class="error">Rezepte sind offline nicht verfügbar. Bitte einmal mit Internet-Verbindung öffnen, damit sie für den Offline-Modus zwischengespeichert werden können.</p>`;
+        }
+        const missing = total - have;
+        return `<div class="warning-box">⚠ ${missing} von ${total} Rezepten offline nicht verfügbar — die Liste ist unvollständig. Mindestens einmal mit Internet-Verbindung öffnen, dann sind sie auch offline da.</div>`;
+    }
+
+    // Offline-tolerantes Holen der abgehakt-Marker: wenn der Endpunkt
+    // nicht im Service-Worker-Cache ist und gerade kein Netz da → still
+    // mit leerem Set zurück, damit die Aggregations-View weiter funktioniert.
+    // Echte Server-Fehler werden geloggt aber nicht eskaliert.
+    // Mergt zusätzlich pending Mutations aus der IDB-Queue, damit lokal
+    // gesetzte Häkchen sofort im DOM erscheinen, auch offline.
+    async function safeGetChecks() {
+        let server;
+        try {
+            server = await api.getChecks();
+        } catch (err) {
+            console.warn('Checks nicht ladbar (vermutlich offline):', err);
+            server = { zutaten: [], gewuerze: [], equipment: [] };
+        }
+        try {
+            return await checksQueue.applyPendingToChecks(server);
+        } catch (err) {
+            console.warn('IDB-Queue nicht lesbar:', err);
+            return server;
+        }
+    }
 
     async function refreshSavedLists() {
         try {
@@ -171,8 +183,8 @@ export async function renderEinkaufsliste(root) {
                             <td>${l.count} Rezept${l.count === 1 ? '' : 'e'}</td>
                             <td class="muted small">${escapeHtml(l.gespeichert_am)}</td>
                             <td>
-                                <button type="button" class="btn small load-list">📂 Laden</button>
-                                <button type="button" class="btn small danger del-list">🗑</button>
+                                <button type="button" class="btn small load-list needs-network">📂 Laden</button>
+                                <button type="button" class="btn small danger del-list needs-network">🗑</button>
                             </td>
                         </tr>
                     `).join('')}
@@ -222,7 +234,7 @@ export async function renderEinkaufsliste(root) {
                             <label class="save-as-label">Aktuelle Auswahl speichern als:
                                 <input type="text" id="save-name" maxlength="80" placeholder="z.B. Wochenplan KW18">
                             </label>
-                            <button type="button" class="btn" id="save-as">💾 Speichern</button>
+                            <button type="button" class="btn needs-network" id="save-as">💾 Speichern</button>
                         </div>
                         <div class="row-buttons">
                             <button type="button" class="btn primary" id="show-zutaten">Zutaten</button>
@@ -274,6 +286,7 @@ export async function renderEinkaufsliste(root) {
             if (!confirm('Alle Rezepte aus der Einkaufsliste entfernen?')) return;
             cart.clear();
             try { await api.clearChecks(); } catch (err) { console.error('clearChecks failed:', err); }
+            try { await checksQueue.clearAll(); } catch (err) { console.warn('Queue-Clear failed:', err); }
             draw();
         });
 
@@ -317,8 +330,9 @@ export async function renderEinkaufsliste(root) {
             const data = await api.getSavedList(name);
             // Snapshot mitnehmen — gespeicherte Liste ist eingefroren
             cart.replaceAll(data.items || [], data.snapshot || {});
-            // Neue Liste = neuer Einkaufszyklus → Häkchen zurücksetzen
+            // Neue Liste = neuer Einkaufszyklus → Häkchen und pending-Queue zurücksetzen
             try { await api.clearChecks(); } catch (err) { console.error('clearChecks failed:', err); }
+            try { await checksQueue.clearAll(); } catch (err) { console.warn('Queue-Clear failed:', err); }
             draw();
         } catch (err) {
             alert('Laden fehlgeschlagen: ' + err.message);
@@ -341,8 +355,10 @@ export async function renderEinkaufsliste(root) {
         ergebnis.innerHTML = `<p class="muted">Lade Rezepte…</p>`;
         try {
             const recipes = await loadRecipes();
+            const warning = offlineCoverageWarning(recipes);
             if (!recipes.length) {
-                ergebnis.innerHTML = `<p class="muted">Keine Rezepte ausgewählt.</p>`;
+                ergebnis.innerHTML = warning ||
+                    `<p class="muted">Keine Rezepte ausgewählt.</p>`;
                 return;
             }
 
@@ -350,6 +366,7 @@ export async function renderEinkaufsliste(root) {
                 <div class="ergebnis print-section">
                     <div class="no-print">
                         <h2>Komplette Rezepte (${recipes.length})</h2>
+                        ${warning}
                         <div class="row-buttons">
                             <button type="button" class="btn primary" data-action="print">🖨 Drucken / als PDF speichern</button>
                             <button type="button" class="btn" data-action="text">💾 Als .txt herunterladen</button>
@@ -369,19 +386,22 @@ export async function renderEinkaufsliste(root) {
     }
 
     async function generateZutaten() {
-        const items = cart.all();
         const ergebnis = root.querySelector('#ergebnis');
         ergebnis.innerHTML = `<p class="muted">Generiere…</p>`;
         try {
-            const [data, checks] = await Promise.all([
-                api.einkaufsliste(items.map(r => ({ id: r.id, personen: r.personen })), cart.snapshot()),
-                api.getChecks(),
+            // Aggregation passiert client-seitig — bei aktivem Snapshot ohne
+            // jeglichen API-Call, sonst nur die per-Rezept-GETs via
+            // loadCartRecipes() (im Browser cache-fähig für Offline-Modus).
+            const [recipes, checks] = await Promise.all([
+                loadRecipes(),
+                safeGetChecks(),
             ]);
-            const liste = data.liste || [];
+            const { liste } = aggregateIngredients(recipes);
             const checkedSet = new Set(checks.zutaten || []);
+            const warning = offlineCoverageWarning(recipes);
 
             if (!liste.length) {
-                ergebnis.innerHTML = `<p class="muted">Keine Zutaten gefunden.</p>`;
+                ergebnis.innerHTML = warning || `<p class="muted">Keine Zutaten gefunden.</p>`;
                 return;
             }
 
@@ -389,6 +409,7 @@ export async function renderEinkaufsliste(root) {
             ergebnis.innerHTML = `
                 <div class="ergebnis">
                     <h2>Zutaten (skaliert &amp; aggregiert)</h2>
+                    ${warning}
                     ${liste.map(grp => `
                         ${grp.group ? `<h3>${escapeHtml(grp.group)}</h3>` : ''}
                         <ul>
@@ -409,7 +430,7 @@ export async function renderEinkaufsliste(root) {
                     <div class="row-buttons">
                         <button type="button" class="btn" data-action="copy">📋 Als Text kopieren</button>
                         <button type="button" class="btn" data-action="download">💾 Als .txt herunterladen</button>
-                        <button type="button" class="btn" data-action="reset-checks">↺ Häkchen zurücksetzen</button>
+                        <button type="button" class="btn needs-network" data-action="reset-checks">↺ Häkchen zurücksetzen</button>
                     </div>
                 </div>
             `;
@@ -427,12 +448,13 @@ export async function renderEinkaufsliste(root) {
         const ergebnis = root.querySelector('#ergebnis');
         ergebnis.innerHTML = `<p class="muted">Lade Rezepte…</p>`;
         try {
-            const [recipes, checks] = await Promise.all([loadRecipes(), api.getChecks()]);
+            const [recipes, checks] = await Promise.all([loadRecipes(), safeGetChecks()]);
             const spices = aggregateSpices(recipes);
             const checkedSet = new Set(checks.gewuerze || []);
+            const warning = offlineCoverageWarning(recipes);
 
             if (!spices.length) {
-                ergebnis.innerHTML = `<p class="muted">Keine Gewürze in den ausgewählten Rezepten.</p>`;
+                ergebnis.innerHTML = warning || `<p class="muted">Keine Gewürze in den ausgewählten Rezepten.</p>`;
                 return;
             }
 
@@ -440,6 +462,7 @@ export async function renderEinkaufsliste(root) {
             ergebnis.innerHTML = `
                 <div class="ergebnis">
                     <h2>Gewürze (${spices.length} verschiedene)</h2>
+                    ${warning}
                     <ul>
                         ${spices.map(s => {
                             const key = checkKey(s);
@@ -449,7 +472,7 @@ export async function renderEinkaufsliste(root) {
                     <div class="row-buttons">
                         <button type="button" class="btn" data-action="copy">📋 Kopieren</button>
                         <button type="button" class="btn" data-action="download">💾 Als .txt herunterladen</button>
-                        <button type="button" class="btn" data-action="reset-checks">↺ Häkchen zurücksetzen</button>
+                        <button type="button" class="btn needs-network" data-action="reset-checks">↺ Häkchen zurücksetzen</button>
                     </div>
                 </div>
             `;
@@ -467,12 +490,13 @@ export async function renderEinkaufsliste(root) {
         const ergebnis = root.querySelector('#ergebnis');
         ergebnis.innerHTML = `<p class="muted">Lade Rezepte…</p>`;
         try {
-            const [recipes, checks] = await Promise.all([loadRecipes(), api.getChecks()]);
+            const [recipes, checks] = await Promise.all([loadRecipes(), safeGetChecks()]);
             const equipment = aggregateEquipment(recipes);
             const checkedSet = new Set(checks.equipment || []);
+            const warning = offlineCoverageWarning(recipes);
 
             if (!equipment.length) {
-                ergebnis.innerHTML = `<p class="muted">Keine Küchenausstattung in den ausgewählten Rezepten angegeben.</p>`;
+                ergebnis.innerHTML = warning || `<p class="muted">Keine Küchenausstattung in den ausgewählten Rezepten angegeben.</p>`;
                 return;
             }
 
@@ -480,6 +504,7 @@ export async function renderEinkaufsliste(root) {
             ergebnis.innerHTML = `
                 <div class="ergebnis">
                     <h2>Küchenausstattung (${equipment.length} Posten)</h2>
+                    ${warning}
                     <p class="muted">Pro Posten der größte Bedarf aus den ausgewählten Rezepten — wird nicht aufsummiert, da Geräte typischerweise wiederverwendet werden.</p>
                     <ul>
                         ${equipment.map(e => {
@@ -494,7 +519,7 @@ export async function renderEinkaufsliste(root) {
                     <div class="row-buttons">
                         <button type="button" class="btn" data-action="copy">📋 Kopieren</button>
                         <button type="button" class="btn" data-action="download">💾 Als .txt herunterladen</button>
-                        <button type="button" class="btn" data-action="reset-checks">↺ Häkchen zurücksetzen</button>
+                        <button type="button" class="btn needs-network" data-action="reset-checks">↺ Häkchen zurücksetzen</button>
                     </div>
                 </div>
             `;
@@ -508,10 +533,13 @@ export async function renderEinkaufsliste(root) {
         }
     }
 
-    /** Server-seitig alle Häkchen einer Kategorie löschen und View neu rendern */
+    /** Server-seitig alle Häkchen einer Kategorie löschen und View neu rendern.
+     *  Lokale pending-Queue komplett leeren, damit ausstehende Mutationen
+     *  den DELETE nicht direkt wieder überschreiben. */
     async function resetChecksFor(kategorie, regenerate) {
         try {
             await api.clearChecks(kategorie);
+            try { await checksQueue.clearAll(); } catch (err) { console.warn('Queue-Clear failed:', err); }
             await regenerate();
         } catch (err) {
             alert('Häkchen zurücksetzen fehlgeschlagen: ' + err.message);

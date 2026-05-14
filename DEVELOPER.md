@@ -979,6 +979,27 @@ Wer die App im Internet (statt LAN) betreibt:
 
 ## 12. Changelog
 
+### PWA-Implementierung (Mai 2026) — Übersicht der 6 Phasen
+
+| Phase | Inhalt | Hauptdateien |
+|---|---|---|
+| **1** | Aggregation client-seitig (Vorbereitung für Offline) | `assets/aggregate.js` |
+| **2** | PWA-Manifest + Service Worker (Installable, Offline-Cache) | `manifest.webmanifest`, `sw.js`, `assets/icons/` |
+| **3** | Offline-UI (Banner, `.needs-network`-Disable von Schreib-Buttons) | `assets/app.js`, `assets/style.css` |
+| **4** | Offline-Häkchen mit Background-Sync | `assets/checks_queue.js` |
+| **5** | Backend-Auth-Infrastructure (Token-Hashing, `geraete`-Tabelle, opt-in) | `api/bootstrap.php` |
+| **6** | Setup-Wizard + Pair-Code-Flow + Frontend-Auth-Gate | `api/setup.php`, `api/auth.php`, `assets/views/{setup,geraete,pair}.js` |
+
+**Was die PWA-Implementierung praktisch bringt:**
+- App ist installierbar auf iOS (Add-to-Homescreen) und Android (PWA-Install)
+- Letzte Rezepte und Cart-Daten funktionieren offline aus dem Cache
+- Häkchen offline persistent + automatischer Sync beim nächsten Online-Wechsel
+- Optionale geräte-basierte Authentifizierung mit 8-Zeichen-Pairing-Code (Setup-Token via SSH einmalig, danach Pairing aus Web-UI)
+
+**Wichtige Konvention für Bestandsnutzer**: Jede Änderung an `assets/*` braucht ein Bump von `CACHE_VERSION` in `sw.js`, sonst hängen Bestandsnutzer auf der alten Bundle-Version (Cache-First-Strategie).
+
+---
+
 ### 2026-05-04 — initiale Implementierung
 
 - Backend: `bootstrap.php`, `rezepte.php` (nur GET), `upload.php`, `einkaufsliste.php`
@@ -993,6 +1014,281 @@ Wer die App im Internet (statt LAN) betreibt:
 - `mb_strtolower`-Fallback auf `strtolower` in `einkaufsliste.php`
 - Apache: `AllowOverride All` als Setup-Schritt dokumentiert
 - Datei-Permissions für JSON-Konfigs auf `644` korrigiert
+
+### 2026-05-12 — Auth-Gate-Bugfix: anonyme Requests werden umgeleitet
+
+Live-Bericht zwei Tage nach Phase-6-Rollout: nach Setup des Web-Admin
+funktioniert alles im selben Browser, aber:
+- Die Upload-Seite war von einem anonymen Browser aus erreichbar (sie zeigte zwar leere Listen, weil alle API-Calls 401 lieferten, aber kein Redirect zum Pair-Flow).
+- Auf einem zu pairenden Gerät war keine Code-Eingabe auffindbar.
+
+Ursache: `app.js`-Auth-Gate hatte den „auth aktiv + kein Token"-Fall nur als Kommentar gelöst. Der vorgesehene `onTokenInvalid`-Fallback feuerte zwar bei 401, aber nur wenn vorher ein Token vorhanden war — Mobile-Browser ohne jegliche Auth-Spur trafen ihn nie.
+
+Fix:
+- `/api/setup.php?action=status` liefert zusätzlich `is_authenticated` (basiert auf `current_geraet()`, ist also true bei gültigem Bearer-Token ODER Session-Cookie).
+- `app.js` redirected jetzt aktiv: `require_auth && has_admin && !is_authenticated && Pfad nicht in {setup, pair}` → `/pair`. Der „Geräte"-Nav-Link wird zusätzlich nur eingeblendet wenn der Browser tatsächlich auth'd ist.
+- `geraete.js` zeigt nach Code-Erzeugung jetzt klar die volle Pair-URL plus 3-Schritte-Anleitung — der User soll genau wissen, dass das Zielgerät die App-URL aufruft und automatisch zur Code-Eingabe geleitet wird.
+
+`CACHE_VERSION` → v6 damit Bestandsnutzer den Fix automatisch bekommen.
+
+Headless-verifiziert: anonymer Aufruf von `/upload` mit aktivem Auth-Lock rendert tatsächlich die `/pair`-View (statt der leeren Upload-Seite).
+
+### 2026-05-12 — PWA-Phase 6: Setup + Pair-Flow + Auth-aware Frontend
+
+Vollständiger Pairing-Flow inkl. Setup-Wizard. Auth bleibt opt-in
+(`REQUIRE_AUTH_TOKEN`-Konstante in `bootstrap.php`); ab Aktivierung
+fließt alles durch den neuen Auth-Gate.
+
+**Backend**:
+- Neue Tabelle `pairing_codes (code PK, name, typ, erstellt_am, expires_at)` für kurzlebige Codes (5 min TTL).
+- `api/setup.php`: GET `?action=status`, POST `activate` (schreibt einmaligen Setup-Token in `data/admin_setup_token.txt` mit `chmod 600`), POST `redeem-setup` (tauscht den Setup-Token gegen ein Web-Admin-Gerät + HttpOnly-Cookie, löscht die Datei). Alle SKIP_AUTH.
+- `api/auth.php`: GET `?action=devices` (Liste aller Geräte), POST `pair` (8-Zeichen-Code generieren, in `pairing_codes` ablegen — Auth-required), POST `redeem-pair` (Code einlösen, Token zurückgeben — SKIP_AUTH), POST `revoke` (aktiv=0), POST `logout` (Cookie clearen).
+- `bootstrap.php`: Helper `set_session_cookie()`/`clear_session_cookie()` mit HttpOnly + SameSite=Strict + Secure (HTTPS-Auto-Detect).
+
+**Pairing-Code-Format**: 8 Zeichen aus Alphabet `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (ohne `I/O/0/1` für bessere Lesbarkeit). Anzeige als `XXXX-XXXX`. Eingabe akzeptiert beliebige Capitalisation und Bindestriche. **Kein QR-Code** in dieser Phase — 8-Zeichen-Codes sind UX-mäßig akzeptabel und sparen ~10 KB Frontend-Code für eine QR-Lib.
+
+**Frontend**:
+- `api.js`: Token-Helper (`getToken`/`setToken`/`clearToken`/`onTokenInvalid`) plus interner `authFetch()`-Wrapper der bei jedem Request `Authorization: Bearer <token>` setzt wenn Token im localStorage liegt. Bei 401-Response wird der Token gelöscht und der Listener aufgerufen.
+- `app.js`: Routes `/setup`, `/geraete`, `/pair`. Beim App-Start `api.getAuthStatus()` → wenn `require_auth && !has_admin` → Redirect `/setup`. Wenn `require_auth && !token && nicht auf /setup oder /pair` → über Token-Invalidation-Hook auf `/pair`. Geräte-Link in der Top-Nav wird nur eingeblendet wenn Auth aktiv.
+- 3 neue Views:
+  - `setup.js`: drei Zustände (Auth-aus → Anleitung, Auth-an+kein-Admin → Setup-Wizard mit `activate`+`redeem-setup`, Auth-an+Admin → Redirect zu `/geraete`).
+  - `geraete.js`: Liste aller Geräte (inkl. revozierter), aktuelles Gerät markiert, „Widerrufen" pro Eintrag, „Pairing-Code erzeugen"-Form (Name + Typ + Button).
+  - `pair.js`: Code-Eingabefeld mit Live-Format-Helper (Auto-Bindestrich nach 4 Zeichen, Upper-Case, nur A-Z/0-9). Bei Erfolg → Token in localStorage → Redirect `/`.
+
+**Service Worker**:
+- `CACHE_VERSION = 'v5'`. Neue Views (`setup.js`, `geraete.js`, `pair.js`) in PRECACHE_PATHS.
+- `/api/setup.php` und `/api/auth.php` werden vom SW **nicht gecached** (Status muss live aktuell sein, sonst sieht der User nach Auth-Aktivierung noch den alten „Auth aus"-Pfad).
+
+**Bug-Fix während Phase 6**: `mb_strlen` in `auth.php` ohne Fallback — kracht auf Systemen ohne mbstring. Jetzt mit `function_exists`-Guard und `strlen`-Fallback (konsistent zu translation.php/cart.php).
+
+**Smoke-Tests E2E** (17 Punkte, alle grün):
+- Status zeigt korrekt require_auth + has_admin
+- API ohne Token → 401
+- Setup activate → 200, schreibt 64-hex-Token in geschützte Datei
+- Falscher Setup-Token → 401
+- Richtiger Setup-Token → 200 + Cookie gesetzt + File gelöscht
+- Cookie-Auth → 200
+- Pair-Endpoint liefert XXXX-XXXX-Format
+- Code einlösen → Bearer-Token (64 hex), funktioniert für API
+- Code zweites Mal einlösen → 404 (verbraucht)
+- Devices-Liste zeigt beide Geräte
+- Mobile widerrufen → Bearer → 401
+- Logout-Response setzt `expires=Thu, 01 Jan 1970`
+
+**Production-Workflow** (für den User):
+1. `REQUIRE_AUTH_TOKEN` auf `true` setzen in `api/bootstrap.php`
+2. PWA neu laden → Browser landet auf `/setup`
+3. „Setup-Token erzeugen" klicken
+4. Per SSH: `cat <app>/data/admin_setup_token.txt` → Token kopieren
+5. Token in `/setup` einfügen → eingeloggt als Web Admin
+6. Auf `/geraete`: neues Gerät pairen → 8-Zeichen-Code anzeigen
+7. Auf Mobile-Browser PWA öffnen → automatisch auf `/pair` → Code eingeben → Token landet in localStorage → fertig
+
+### 2026-05-12 — PWA-Phase 5: Backend Auth-Infrastructure
+
+Vorarbeit für QR-Pairing in Phase 6. Das Backend lernt Geräte und
+Bearer-Tokens — aber der Auth-Check ist per Default deaktiviert,
+damit das LAN-/Single-Household-Modell ungestört weiterläuft.
+
+- Neue Tabelle `geraete (id, token_hash UNIQUE, name, typ, erstellt_am, zuletzt_gesehen, aktiv)` in `bootstrap.php`.
+- Tokens sind 32 Bytes zufällig = 64-Hex-Chars. Server speichert nur den SHA-256-Hash — der Klartext-Token landet nie in der DB.
+- `current_geraet()` liest entweder `Authorization: Bearer <token>` (Mobile) oder Cookie `rezepte_session` (Web). Aktualisiert `zuletzt_gesehen` best-effort.
+- `ensure_authenticated()` blockt mit 401 wenn `REQUIRE_AUTH_TOKEN` an ist und kein gültiges Gerät authentifiziert ist. Endpoints können sich mit `define('SKIP_AUTH', true)` vor dem `require bootstrap.php` ausnehmen (Phase 6: Setup/Pairing).
+- **Konstante `REQUIRE_AUTH_TOKEN = false`** als opt-in-Schalter. Erst nach Phase 6 (Setup-UI) sicher aktivierbar.
+- `.htaccess`: neue RewriteRule schleift den `Authorization`-Header als `HTTP_AUTHORIZATION`-Env-Variable durch — Apache mod_php strippt ihn sonst aus `$_SERVER`. Plus Code-Fallback auf `apache_request_headers()`.
+
+**Wichtige Warnung**: `REQUIRE_AUTH_TOKEN = true` ohne Phase 6 macht
+die App unbrauchbar, weil kein Pairing-Endpoint existiert um den
+ersten Token zu erzeugen. Default-`false` lassen bis Phase 6 fertig ist.
+
+Smoke-Tests aller Pfade (via temporärem Seed-Endpoint, weil PHP-CLI
+keine Write-Permission auf die DB hat):
+- Kein Token + Auth an → 401 ✓
+- Gültiger Bearer-Token → 200, `zuletzt_gesehen` aktualisiert ✓
+- Cookie `rezepte_session` → 200 ✓
+- Unbekannter Token (richtiges Format) → 401 ✓
+- Falsches Format (zu kurz, kein Hex) → 401 ✓
+- Revozierter Token (`aktiv=0`) → 401 ✓
+- POST-Endpoints (cart.php etc.) → ebenfalls 401 ohne gültigen Token ✓
+- Auth aus → alle Endpoints offen wie zuvor ✓
+
+### 2026-05-12 — PWA-Phase 4: Offline-Häkchen mit Sync
+
+Häkchen-Mutationen funktionieren jetzt offline und werden beim
+nächsten Online-Wechsel automatisch zum Server synchronisiert.
+
+**Neue Datei `assets/checks_queue.js`** — dünner IndexedDB-Wrapper
+(DB `rezepte-pwa`, Store `pending_checks`). API:
+- `enqueue(kategorie, schluessel, checked)` — speichert eine Mutation
+- `applyPendingToChecks(serverChecks)` — mergt Server-Antwort mit
+  pending Einträgen, letzter-pro-key gewinnt
+- `flush(api)` — dedupliziert pro Key auf den jüngsten Eintrag,
+  postet ihn, löscht bei Erfolg alle Einträge dieses Keys; bei Fehler
+  bleibt's für den nächsten Versuch
+- `clearAll()` — Queue leeren (für „Häkchen zurücksetzen", Cart-Clear
+  und Liste-Laden, damit pending Einträge den Reset nicht überschreiben)
+
+**Integration in `views/einkaufsliste.js`**:
+- `wireCheckboxes` → enqueue zuerst, dann (wenn online) sofort flush.
+  Pattern ist einheitlich online/offline — keine Verzweigung.
+- `safeGetChecks` wendet `applyPendingToChecks` an, damit lokale
+  pending Häkchen sofort im DOM-Render erscheinen.
+- `resetChecksFor`, Cart-Clear und Liste-Laden rufen
+  `checksQueue.clearAll()` zusätzlich zum Server-DELETE.
+
+**Sync-Trigger in `app.js`**:
+- Beim `online`-Event: `checksQueue.flush(api)`
+- Beim `visibilitychange` mit `visible`: dito (für iOS, wo
+  Background-Sync-API fehlt)
+- Beim App-Start: einmal probieren (falls noch was hängt vom letzten
+  offline-Block)
+
+**Last-Write-Wins**: passt zum existierenden „shared everything"-
+Modell. Konflikt zwischen zwei Geräten die offline am gleichen Item
+zusammenklicken → wer zuletzt online geht überschreibt — akzeptabel
+für Familien-Use-Case.
+
+**`CACHE_VERSION` auf `v4`**, `checks_queue.js` in PRECACHE_PATHS
+hinzugefügt damit der SW das Modul vorab cached.
+
+Unit-getestete Merge-Szenarien (`applyPendingToChecks`):
+- Offline-only: pending wird sichtbar im result
+- Pending überschreibt Server-Stand (uncheck-Override)
+- Latest-wins bei mehrfachem Toggle pro Key
+- Additive Erweiterung des Server-Sets
+
+### 2026-05-12 — Offline-Aggregation tolerant gegen fehlende Cached-Rezepte
+
+Live-Bericht: nach dem Cache-Reset funktionierten Zutaten / Gewürze /
+Equipment / Komplette Rezepte offline wieder nicht — „Fehler: offline".
+
+Ursache (anders als beim vorherigen safeGetChecks-Fix): `loadCartRecipes()`
+in `views/rezepte_print.js` benutzte `Promise.all` über `getRezept(id)`-
+Aufrufe. Wenn ein einzelnes Rezept noch nicht im Service-Worker-Cache lag
+(weil der User es seit Cache-v2-Install noch nicht im Detail geöffnet
+hatte), gab der SW dafür den 503-Offline-Fallback raus. `Promise.all`
+reject → ganze loadRecipes-Promise reject → die vier Aggregations-Views
+sahen nur den „offline"-Error.
+
+Fix: `Promise.allSettled` statt `Promise.all` in `loadCartRecipes()` —
+die geladenen Rezepte gehen durch, fehlende werden rausgefiltert.
+Caller sehen ein kleineres Array und können den Unterschied gegen
+`cart.all().length` als „X von Y nicht offline verfügbar" anzeigen.
+
+Neuer Helper `offlineCoverageWarning(recipes)` in `views/einkaufsliste.js`:
+liefert leeren String bei voller Coverage, ein `<p class="error">` bei
+0 geladenen Rezepten („einmal mit Internet öffnen damit der Cache füllt"),
+oder ein `<div class="warning-box">` mit der Differenz bei partieller
+Coverage. Wird in allen vier Aggregations-Views (Zutaten, Gewürze,
+Küchenausstattung, Komplette Rezepte) ins Result-Template injiziert.
+
+`CACHE_VERSION` auf `'v3'` gebumpt — Phase-3 v2-Caches halten sonst die
+alte loadCartRecipes-Variante fest (Cache-First-Strategie für statische
+Assets). Jeder PWA-Bestandsnutzer kriegt beim nächsten App-Start den
+neuen JS-Bundle.
+
+**Hinweis für die Doku**: Jedes Update am `assets/*`-Code muss
+`CACHE_VERSION` hochziehen, sonst hängen Bestandsnutzer auf der alten
+Version. In Phase 4 (geplant) automatisieren wir das per Build-Step
+oder Cache-Invalidation-Header.
+
+### 2026-05-12 — SW-Bug-Fix: App-Shell zeigte auf sich selbst
+
+Drei zusammenhängende Live-Bugs, alle mit derselben Ursache:
+- Offline-Reload → der Browser zeigt den SW-Quelltext statt der App
+- Banner sichtbar obwohl online
+- needs-network-Buttons sehen normal aus
+
+Ursache: `PRECACHE_PATHS[0]` war `''`, was über `new URL('', sw.js-URL)`
+auf die SW-Datei selbst resolvte (`/<mount>/sw.js`) statt auf den
+App-Shell-Pfad (`/<mount>/`). Folge: SW cachte sich selbst als
+App-Shell und lieferte sich offline als Navigation-Response aus → der
+Browser rendert den JS-Quelltext.
+
+Fix: `'./'` statt `''` für den App-Shell-Slot (resolved korrekt zum
+Scope-Pfad). Plus `CACHE_VERSION = 'v2'` damit Bestandsnutzer einen
+sauberen Cache bekommen — sonst hängt der alte HTML/CSS-Mix weiter
+fest (HTML schon Phase 3 mit Banner-Element + needs-network-Klassen,
+CSS aber noch Phase 2 ohne die zugehörigen Regeln → Banner permanent
+sichtbar, Buttons unverändert).
+
+### 2026-05-12 — PWA-Phase 3: Offline-UI
+
+- Neuer Offline-Banner im `index.php`-Header (`<div class="offline-banner">`), per CSS standardmäßig hidden, sichtbar wenn `<body>` die Klasse `is-offline` hat.
+- `assets/app.js` setzt `body.is-offline` aus `navigator.onLine` und reagiert auf die `online`/`offline`-Events. Plus neuer Export `network.isOnline()` falls Views ihn brauchen.
+- CSS-Regel `body.is-offline .needs-network { opacity:0.45; pointer-events:none; cursor:not-allowed; filter:grayscale(0.4); }` — alle Actions die offline echt nichts können sind mit `needs-network` markiert und werden im Offline-Modus sichtbar gedämpft + klickresistent.
+- Markiert mit `needs-network`: Upload-Save, Bulk-Dry-Run, Bulk-Import, Detail-Bearbeiten, Detail-Löschen, Edit-Speichern, Einkaufsliste-„Speichern als", Saved-Lists-Laden, Saved-Lists-Löschen, „Häkchen zurücksetzen".
+- **Nicht** markiert (Local-first, Phase 4 macht sie persistent): Cart-Items-Entfernen, Cart-„Alle entfernen", Personenzahl ändern, Häkchen-Toggle. Diese Aktionen ändern lokalen State, der debounced-PUT-Cart-Sync failed offline silent — beim nächsten Online-Wechsel wird automatisch gesynct (vorhandene `scheduleCartSave`-Logik).
+- Banner-Text: „Offline — Anzeigen geht, Änderungen am Server bis zur nächsten Verbindung deaktiviert". Mit role=status + aria-live=polite für Screen-Reader.
+
+### 2026-05-12 — PWA-Phase 2 Fix: offline Zutaten/Gewürze/Equipment
+
+Bug-Report von Live-Test: Offline klappt „Komplette Rezepte", aber bei
+„Zutaten" / „Gewürze" / „Küchenausstattung" kam „Fehler: offline".
+
+Ursache: die drei Aggregations-Handler haben `loadRecipes()` und
+`api.getChecks()` parallel via `Promise.all` geholt. Wenn der User die
+Einkaufsliste vorher noch nie online besucht hatte, war
+`/api/checks.php` nicht im SW-Cache → der SW lieferte den 503-Offline-
+Fallback → `Promise.all` rejected → ganze View kippt obwohl die Rezept-
+Daten aus dem Snapshot vorhanden wären.
+
+Fix: kleiner Helper `safeGetChecks()` in `views/einkaufsliste.js` —
+wenn der API-Call fehlschlägt (offline oder echter Server-Fehler),
+gibt er `{zutaten:[],gewuerze:[],equipment:[]}` zurück und loggt eine
+warning, statt das Render zu blockieren. Alle drei Generate-Funktionen
+nutzen den Wrapper.
+
+Side-effect: offline gesetzte Häkchen werden weiterhin im DOM
+gehalten aber nicht persistiert — der `wireCheckboxes`-Toggle ruft
+`api.setCheck()`, das offline failed. Das wird sauber von Phase 4
+(IndexedDB-Queue + Background-Sync) gelöst. Bis dahin: console.error,
+DOM-State bleibt, beim nächsten Online-Reload sieht der User den
+Server-Stand.
+
+### 2026-05-11 — PWA-Phase 2: Manifest + Service Worker
+
+Die App ist ab jetzt eine installierbare Progressive Web App.
+
+- Neu: `manifest.webmanifest` mit name, theme/background-color, icons in SVG + PNG-Größen (192/512/maskable), display:standalone, start_url/scope base-relativ
+- Neu: `sw.js` im App-Root mit drei Cache-Strategien:
+  - **Navigation** (HTML) → Network-first, App-Shell-Fallback bei Offline
+  - **Statische Assets** (`assets/*`) → Cache-First
+  - **API-GETs** (`api/*`) → Stale-While-Revalidate
+  - POST/PUT/DELETE und cross-origin Requests werden transparent durchgereicht
+  - `CACHE_VERSION`-Konstante steuert das Cache-Lifecycle; alte Caches werden beim `activate`-Event aufgeräumt
+- Neu: `assets/icons/icon.svg` (Vektor, Kochtopf-Motiv in Accent-Farbe) plus PNG-Placeholder in den Standard-Größen. **Placeholders sind einfarbige Blöcke** — für Production-Polish durch echte Designs ersetzen.
+- Geändert: `index.php` mit manifest-Link, `theme-color`, iOS-Meta-Tags (`apple-mobile-web-app-capable`, status-bar-style, apple-touch-icon, viewport-fit=cover für Notch-Geräte)
+- Geändert: `assets/app.js` registriert den SW mit Mount-Point-aware Scope (`APP_BASE + 'sw.js'`)
+- Geändert: `.htaccess` mit MIME-Type für `.webmanifest` und `Cache-Control: no-cache` für `sw.js` (damit Updates schnell durchschlagen; braucht `mod_headers`)
+- Smoke-Test: Manifest valides JSON mit korrektem Content-Type, alle 5 Icon-Größen 200, alle PWA-Meta-Tags im DOM, SW-Registration im app.js
+- **Bekannte Einschränkung**: PNG-Icons sind 1×1 hochskalierte einfarbige Placeholders. Funktioniert technisch, sieht aber kacke aus. Echte Icons (z. B. exportiert aus dem SVG via Inkscape oder Online-Tool) kommen als nächstes.
+
+### 2026-05-11 — PWA-Phase 1: Aggregation client-seitig
+
+Vorarbeit für den Offline-Modus: die Zutaten-Aggregation wandert vom
+Server-Endpoint `api/einkaufsliste.php` als JS-Modul ins Frontend.
+
+- Neue Datei `assets/aggregate.js` mit `aggregateIngredients(recipes)`,
+  `aggregateSpices(recipes)`, `aggregateEquipment(recipes)`. Letztere beiden
+  waren bereits client-seitig in `views/einkaufsliste.js` — wurden in das
+  neue Modul übersiedelt, damit alle Aggregations-Funktionen an einem Ort
+  liegen.
+- `aggregateIngredients` ist 1:1-Portierung der PHP-Logik aus
+  `api/einkaufsliste.php`: Aggregations-Key `name_lower||unit_lower`,
+  first-seen Department gewinnt (mit „leer → nicht leer"-Aufwertung),
+  Department-Reihenfolge folgt `VALID_DEPARTMENTS`, „Sonstiges" am Ende.
+- `views/einkaufsliste.js` ruft nicht mehr `api.einkaufsliste()` auf;
+  stattdessen `loadRecipes()` + `aggregateIngredients(recipes)`. Bei
+  aktivem Snapshot zero API-Calls für die Aggregation, sonst nur die
+  per-Rezept-`getRezept()`-Aufrufe (die in Phase 2 vom Service Worker
+  gecached werden).
+- `api/einkaufsliste.php` bleibt aus Kompatibilitätsgründen erhalten —
+  wird vom Frontend aber nicht mehr genutzt. Kann später entfernt
+  werden falls externe Konsumenten keine Rolle spielen.
+- Smoke-Test: Server- und Client-Aggregation liefern bit-identisches
+  Output über mehrere Test-Szenarien (1 Rezept mit allen Departments,
+  2 Rezepte mit überlappenden Items, mixed-department-merge).
 
 ### 2026-05-11 — Security-Härtung
 

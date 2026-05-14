@@ -1,9 +1,13 @@
 import { APP_BASE } from './config.js';
-import { api } from './api.js';
+import { api, onTokenInvalid, getToken } from './api.js';
+import * as checksQueue from './checks_queue.js';
 import { renderRezeptListe, renderRezeptDetail, renderRezeptEdit } from './views/rezepte.js';
 import { renderUpload } from './views/upload.js';
 import { renderEinkaufsliste } from './views/einkaufsliste.js';
 import { renderRezeptePrint } from './views/rezepte_print.js';
+import { renderSetup } from './views/setup.js';
+import { renderGeraete } from './views/geraete.js';
+import { renderPair } from './views/pair.js';
 
 // Legacy localStorage-Key — wird einmalig beim ersten Start auf den Server
 // migriert (falls Server-Cart noch leer und localStorage Items enthält) und
@@ -161,6 +165,9 @@ const routes = [
     { pattern: /^\/upload$/, handler: () => renderUpload(app) },
     { pattern: /^\/einkaufsliste\/rezepte$/, handler: () => renderRezeptePrint(app) },
     { pattern: /^\/einkaufsliste$/, handler: () => renderEinkaufsliste(app) },
+    { pattern: /^\/setup$/, handler: () => renderSetup(app) },
+    { pattern: /^\/geraete$/, handler: () => renderGeraete(app) },
+    { pattern: /^\/pair$/, handler: () => renderPair(app) },
 ];
 
 const app = document.getElementById('app');
@@ -205,11 +212,92 @@ document.addEventListener('click', (e) => {
 
 window.addEventListener('popstate', render);
 
-export { navigate };
+// --- Network-Status -------------------------------------------------------
+// Setzt body.is-offline auf Basis von navigator.onLine und reagiert auf
+// online/offline-Events. CSS in style.css blendet einen Banner ein und
+// dämpft Elemente mit .needs-network-Klasse.
+function updateOfflineClass() {
+    document.body.classList.toggle('is-offline', !navigator.onLine);
+}
+updateOfflineClass();
+window.addEventListener('online', updateOfflineClass);
+window.addEventListener('offline', updateOfflineClass);
 
-// Bevor wir rendern, einmal den Server-State holen — sonst zeigt z.B. die
-// Detail-View "+/✓ Im Cart" falsch.
+// --- Pending-Häkchen synchronisieren --------------------------------------
+// Wenn das Gerät online wird oder der Tab wieder sichtbar wird, versuchen
+// wir die in IndexedDB gequeueten Check-Mutations zum Server zu pushen.
+// Last-Write-Wins per Schlüssel; permanente Fehler bleiben in der Queue
+// und werden beim nächsten Anlauf wieder probiert.
+function tryFlushChecks() {
+    if (!navigator.onLine) return;
+    checksQueue.flush(api).catch(err => console.warn('Pending-Sync fehlgeschlagen:', err));
+}
+window.addEventListener('online', tryFlushChecks);
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') tryFlushChecks();
+});
+// Beim App-Start einmal probieren (Initial-Sync falls noch was anhängt)
+tryFlushChecks();
+
+export { navigate };
+export const network = {
+    isOnline: () => navigator.onLine,
+};
+
+// Bei 401-Antwort eines API-Calls: Token war ungültig → falls wir nicht
+// schon auf /pair sind, dort hin redirecten.
+onTokenInvalid(() => {
+    const p = getRoutePath();
+    if (p !== '/pair' && p !== '/setup') {
+        navigate('/pair', true);
+    }
+});
+
+// Beim App-Start: Auth-Status checken. Wenn Auth aktiv ist und kein
+// gültiger Token vorhanden ist → User direkt zum richtigen Setup-Schritt
+// schicken. Sonst initCart + render wie bisher.
 (async () => {
+    let authStatus = null;
+    try {
+        authStatus = await api.getAuthStatus();
+    } catch (err) {
+        // Setup-Endpoint unreachable (offline / kaputt) — Fallback: normal weiter
+        console.warn('Auth-Status nicht prüfbar:', err);
+    }
+
+    if (authStatus && authStatus.require_auth) {
+        // Geräte-Link nur einblenden wenn Auth aktiv UND wir auth'd sind
+        const navLink = document.querySelector('.nav-geraete');
+        if (navLink) navLink.hidden = !authStatus.is_authenticated;
+
+        const path = getRoutePath();
+        if (!authStatus.has_admin) {
+            // Erst-Setup nötig — egal wo der User hingeht, /setup gewinnt
+            if (path !== '/setup') {
+                navigate('/setup', true);
+                return;
+            }
+        } else if (!authStatus.is_authenticated && path !== '/setup' && path !== '/pair') {
+            // Anonymer Request mit aktivem Auth-Lock → zum Pair-Screen.
+            // Der Server hat bereits geprüft ob ein Bearer-Token (aus
+            // localStorage) oder ein Session-Cookie (Web-Admin) gültig ist;
+            // beides nein heißt: dieser Browser ist nicht eingeloggt.
+            navigate('/pair', true);
+            return;
+        }
+    }
+
     await initCart();
     render();
 })();
+
+// Service Worker registrieren — Mount-Point-aware (scope = APP_BASE).
+// HTTPS oder localhost ist Voraussetzung; Browser ignoriert die Registration
+// stillschweigend wenn nicht erfüllt.
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker
+            .register(APP_BASE + 'sw.js', { scope: APP_BASE })
+            .catch((err) => console.warn('Service Worker registration failed:', err));
+    });
+}

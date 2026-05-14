@@ -221,6 +221,73 @@ or extend the map — see [DEVELOPER.md §5.2](DEVELOPER.md#52-einheiten).
 
 ---
 
+## Mobile / PWA
+
+The app is a Progressive Web App — it can be installed on the home
+screen of any modern mobile browser and works offline once the assets
+are cached.
+
+### Install on iOS
+
+1. Open the app URL in **Safari** (Chrome on iOS does not support
+   add-to-home-screen for third-party PWAs).
+2. Tap the share button (square with up-arrow).
+3. Tap **„Zum Home-Bildschirm"**.
+4. Confirm with **Hinzufügen**.
+
+The app appears as its own icon, opens in standalone mode (no Safari
+chrome), and remembers its state across launches.
+
+### Install on Android
+
+1. Open the app URL in **Chrome** (or any Chromium-based browser).
+2. Open the browser menu → **App installieren** (or „Zum
+   Startbildschirm hinzufügen").
+3. Confirm.
+
+### Offline behaviour
+
+Once installed and opened once with a working connection:
+- App shell (HTML/CSS/JS, icons) is served from the local cache and
+  works in airplane mode.
+- Recipes, the current cart and saved lists are cached from their
+  most recent online request (stale-while-revalidate). Reading
+  recipes offline works; you see the last synced state.
+- Generating the shopping list works offline as long as the recipes
+  are in the snapshot or in the cache.
+- Writing (uploading recipes, modifying the cart, saving lists)
+  requires a connection — the UI shows the offline state.
+- Phase 2 of the PWA work introduces persisted checkbox state with
+  background-sync (planned).
+
+### Enable device-pairing (optional, opt-in)
+
+By default the app is open — anyone reaching the URL has full access.
+That's fine for a LAN/single-household setup. For Internet-facing
+deployments you can switch on token-based device pairing:
+
+1. In `api/bootstrap.php`, set `const REQUIRE_AUTH_TOKEN = true;`
+2. Reload the app — the browser lands on `/setup`
+3. Click „Setup-Token erzeugen"
+4. SSH to the server and read the one-shot token:
+   `cat <install-dir>/data/admin_setup_token.txt`
+5. Paste it on `/setup` → you're logged in as Web Admin (cookie set)
+6. Go to „Geräte" in the top nav → „Pairing-Code erzeugen"
+7. On the phone: open the PWA URL → automatic redirect to `/pair` →
+   enter the 8-character code (XXXX-XXXX) within 5 minutes
+8. The phone stores a bearer token in localStorage; from now on every
+   request is signed
+
+Revoke compromised devices from the same „Geräte" screen. Logout
+clears the web cookie only — bearer tokens stay valid until revoked.
+
+### Replace placeholder icons
+
+The bundled icons in `assets/icons/` are minimal placeholders (single-
+colour upscaled blocks for the PNGs; a simple vector pot for the SVG).
+For production polish, replace them with proper designs — keep the
+same filenames so the manifest needs no edits.
+
 ## Security model
 
 This app is designed for a **trusted LAN / single-household** setup

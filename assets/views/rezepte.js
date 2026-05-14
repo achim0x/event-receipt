@@ -127,9 +127,9 @@ export async function renderRezeptDetail(root, id) {
                 <button id="add-cart" type="button" class="btn primary">
                     ${inCart ? '✓ In Einkaufsliste — Personen aktualisieren' : '+ Zur Einkaufsliste'}
                 </button>
-                <a href="rezept/${rezept.id}/bearbeiten" data-link class="btn">✎ Bearbeiten</a>
+                <a href="rezept/${rezept.id}/bearbeiten" data-link class="btn needs-network">✎ Bearbeiten</a>
                 <button id="export-rezept" type="button" class="btn">💾 Als JSON</button>
-                <button id="delete-rezept" type="button" class="btn danger">🗑 Löschen</button>
+                <button id="delete-rezept" type="button" class="btn danger needs-network">🗑 Löschen</button>
             </div>
 
             ${ingredients.length ? `
@@ -236,7 +236,7 @@ export async function renderRezeptEdit(root, id) {
             <textarea id="editor" spellcheck="false">${escapeHtml(initialJson)}</textarea>
 
             <div class="row-buttons">
-                <button type="button" class="btn primary" id="save">Speichern</button>
+                <button type="button" class="btn primary needs-network" id="save">Speichern</button>
                 <button type="button" class="btn" id="reset">Zurücksetzen</button>
                 <a href="rezept/${id}" data-link class="btn">Abbrechen</a>
             </div>
