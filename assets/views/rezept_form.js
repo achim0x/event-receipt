@@ -221,7 +221,7 @@ function renderTagsBlock(tags) {
     }).join('');
     return `
         <fieldset class="form-section">
-            <legend>Etiketten</legend>
+            <legend>Label</legend>
             <div class="tag-checks">${opts}</div>
         </fieldset>
     `;

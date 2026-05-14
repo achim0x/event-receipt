@@ -271,6 +271,7 @@ deutscher Schreibweise werden automatisch übersetzt.
 | `fruit/vegetables`  | Obst/Gemüse |
 | `fresh-counter`     | Frische Theke |
 | `bakery`            | Bäckerei |
+| `cooling`           | Kühlung |
 | `non-food`          | Non-Food |
 | `drinks`            | Getränke |
 | `breakfast`         | Frühstück |
@@ -1015,7 +1016,7 @@ Fehlerformat aus dem Server (`{"error": "…"}`) wird in `Error` übersetzt.
 | Detail-Endpunkt liefert Liste statt Einzel-Rezept | Pfad-Regex matcht nicht | aktueller Regex matcht `/api/rezepte/{id}` UND `/api/rezepte.php/{id}` |
 | Cart enthält gelöschtes Rezept | Cart wird auf Server-Seite nicht synchronisiert | Frontend ruft `cart.remove()` nach `DELETE` auf — bei direkten DB-Eingriffen muss man im Browser localStorage manuell leeren |
 | Upload bricht mit "Unbekannte Einheit" ab | Einheit ist nicht in der Map (siehe 5.2) | Entweder JSON anpassen (z. B. `Stk` → `Stück`), oder `unit_normalization_map()` in `api/translation.php` ergänzen + ggf. `translation_map.json` aktualisieren |
-| Upload bricht mit "Unbekannte Abteilung" ab | `department`-Wert nicht in der Liste (siehe 5.3) | JSON anpassen auf einen der erlaubten Werte (Obst/Gemüse, Frische Theke, Bäckerei, Non-Food, Getränke, Frühstück, Backen, Grundnahrungsmittel) oder die Liste in `valid_departments()` erweitern |
+| Upload bricht mit "Unbekannte Abteilung" ab | `department`-Wert nicht in der Liste (siehe 5.3) | JSON anpassen auf einen der erlaubten Werte (Obst/Gemüse, Frische Theke, Bäckerei, Kühlung, Non-Food, Getränke, Frühstück, Backen, Grundnahrungsmittel) oder die Liste in `valid_departments()` erweitern |
 
 ---
 
@@ -1111,6 +1112,29 @@ Wer die App im Internet (statt LAN) betreibt:
 ---
 
 ## 12. Changelog
+
+### 2026-05-14 — Department Kühlung + UI-Vokabular-Anpassungen
+
+Drei kleine Polituren:
+
+- **Neues Department `cooling` / Kühlung** zwischen `bakery` und
+  `non-food` einsortiert (Frische-Kette: Theke → Backwaren →
+  gekühlt → Trockensortiment). Geändert in `valid_departments()`,
+  `german_to_english_department()`, `assets/aggregate.js`-Maps,
+  `translation_map.json`, KI-Prompt in `upload.js`, README,
+  DEVELOPER.md (Sektion 5.3 Tabelle + Stolpersteine).
+- **UI-Term „Etiketten" → „Label"**: rezept_form.js (`<legend>`)
+  und rezepte.js (Listen-Filter-Dropdown). Datenmodell unverändert
+  — der JSON-Key bleibt `tags` (kanonisch englisch) und der
+  DE-Alias `etiketten` wird weiterhin akzeptiert, damit
+  Bestands-JSON-Dateien ohne Migration funktionieren.
+- **Sort-Option umbenannt**: aus „Bewertung ★ hoch → niedrig"
+  wird einfach „Bewertung". Wirkt aufgeräumter im Dropdown; die
+  Sortier-Logik bleibt identisch (höchste zuerst).
+
+`SW CACHE_VERSION` v20 → v21.
+
+---
 
 ### 2026-05-14 — Häkchen für freie Zutaten + geteilter Check-State
 

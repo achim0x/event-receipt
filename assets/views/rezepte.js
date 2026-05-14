@@ -67,12 +67,12 @@ export async function renderRezeptListe(root) {
                     <option value="">Alle Kategorien</option>
                 </select>
                 <select id="tag">
-                    <option value="">Alle Etiketten</option>
+                    <option value="">Alle Label</option>
                     ${VALID_TAGS.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(displayTag(t))}</option>`).join('')}
                 </select>
                 <select id="sort" title="Sortierung">
                     <option value="title">Titel A–Z</option>
-                    <option value="rating">Bewertung ★ hoch → niedrig</option>
+                    <option value="rating">Bewertung</option>
                 </select>
             </div>
             <div id="liste" class="card-grid"><p class="muted">Lade…</p></div>
