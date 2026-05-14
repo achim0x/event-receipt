@@ -1089,6 +1089,28 @@ Wer die App im Internet (statt LAN) betreibt:
 
 ## 12. Changelog
 
+### 2026-05-14 — Quelle als klickbarer Link
+
+Wenn die `source`/`quelle` mit `http://` oder `https://` beginnt, wird
+sie in der Detail-View, in der Print-View und in der Upload-Preview
+als `<a target="_blank" rel="noopener noreferrer">` gerendert.
+Plaintext-Quellen (Kochbücher etc.) bleiben unverändert escape-only.
+
+URL-Erkennung explizit auf das Protokoll-Präfix beschränkt — keine
+protokollosen `www.`-Strings — damit Kochbuch-Quellen mit Punkten
+("Tim Mälzer, Kein Schnickschnack") nicht fälschlich als URL parsen.
+
+**Bewusste Ausnahme**: Die Karte in der Listen-View linkifiziert NICHT.
+Die Karte ist selbst schon ein `<a>` und nested anchors brechen das
+HTML. Ein Click irgendwo auf die Karte führt sowieso zur Detail-View;
+dort funktioniert der Link.
+
+Helper `renderSourceText()` ist in jedem Konsumenten inline, weil der
+Codebase-Konvention nach kleine Helpers (escapeHtml etc.) ohnehin pro
+View dupliziert werden. SW `CACHE_VERSION` v9 → v10.
+
+---
+
 ### 2026-05-14 — Diät-Tags (vegan / vegetarisch) mit Filter
 
 Rezepte können jetzt mit `vegan` und/oder `vegetarian` getaggt werden,

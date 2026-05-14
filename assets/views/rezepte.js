@@ -25,6 +25,23 @@ function formatQuantity(q) {
     return n.toFixed(2).replace(/\.?0+$/, '');
 }
 
+/**
+ * Quelle als klickbaren Link rendern wenn sie wie eine URL aussieht
+ * (http:// oder https://), sonst escaped als plain text.
+ * Akzeptiert bewusst KEINE protokollosen "www.…" Strings — sonst würde
+ * eine Kochbuch-Quelle wie „Tim Mälzer, Kein Schnickschnack" mit Punkt
+ * ggf. fälschlich als URL interpretiert.
+ */
+function renderSourceText(quelle) {
+    const s = String(quelle ?? '').trim();
+    if (!s) return '';
+    if (/^https?:\/\//i.test(s)) {
+        const safe = escapeHtml(s);
+        return `<a href="${safe}" target="_blank" rel="noopener noreferrer">${safe}</a>`;
+    }
+    return escapeHtml(s);
+}
+
 export async function renderRezeptListe(root) {
     root.innerHTML = `
         <section>
@@ -97,6 +114,8 @@ export async function renderRezeptListe(root) {
                     ${r.kategorie ? `<span class="tag">${escapeHtml(r.kategorie)}</span>` : ''}
                     ${tagsHtml}
                     ${r.zubereitungszeit ? `<p class="muted">⏱ ${escapeHtml(r.zubereitungszeit)}</p>` : ''}
+                    ${/* Auf Karten bewusst kein Link um die URL — die Karte selber ist
+                          schon ein <a>, und nested anchors brechen das HTML. */ ''}
                     ${r.quelle ? `<p class="muted">📖 ${escapeHtml(r.quelle)}</p>` : ''}
                 </a>
             `;
@@ -143,7 +162,7 @@ export async function renderRezeptDetail(root, id) {
                 ${rezept.kategorie ? `<span class="tag">${escapeHtml(rezept.kategorie)}</span>` : ''}
                 ${tagsArr.map(t => `<span class="diet-tag diet-${escapeHtml(t)}">${escapeHtml(displayTag(t))}</span>`).join('')}
                 ${rezept.zubereitungszeit ? `<span>⏱ ${escapeHtml(rezept.zubereitungszeit)}</span>` : ''}
-                ${rezept.quelle ? `<span>📖 ${escapeHtml(rezept.quelle)}</span>` : ''}
+                ${rezept.quelle ? `<span>📖 ${renderSourceText(rezept.quelle)}</span>` : ''}
             </div>
 
             <div class="personen-box">

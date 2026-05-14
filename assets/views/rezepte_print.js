@@ -16,6 +16,19 @@ function formatQuantity(q) {
     return n.toFixed(2).replace(/\.?0+$/, '');
 }
 
+// Quelle als Link rendern wenn http(s)://… vorliegt, sonst Plaintext.
+// Auch im Print-View nützlich: auf Papier wird das `<a>` zwar als Text
+// gerendert, aber bei „Drucken via PDF" bleibt die URL klickbar.
+function renderSourceText(quelle) {
+    const s = String(quelle ?? '').trim();
+    if (!s) return '';
+    if (/^https?:\/\//i.test(s)) {
+        const safe = escapeHtml(s);
+        return `<a href="${safe}" target="_blank" rel="noopener noreferrer">${safe}</a>`;
+    }
+    return escapeHtml(s);
+}
+
 export function recipesToText(recipes) {
     const lines = [];
     for (const { rezept, personen } of recipes) {
@@ -99,7 +112,7 @@ export function renderRezeptHtml({ rezept, personen }) {
             <div class="meta">
                 ${rezept.kategorie ? `<span class="tag">${escapeHtml(rezept.kategorie)}</span>` : ''}
                 ${rezept.zubereitungszeit ? `<span>⏱ ${escapeHtml(rezept.zubereitungszeit)}</span>` : ''}
-                ${rezept.quelle ? `<span>📖 ${escapeHtml(rezept.quelle)}</span>` : ''}
+                ${rezept.quelle ? `<span>📖 ${renderSourceText(rezept.quelle)}</span>` : ''}
             </div>
 
             ${groups.length ? `

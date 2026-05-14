@@ -17,6 +17,16 @@ function formatQuantity(q) {
     return n.toFixed(2).replace(/\.?0+$/, '');
 }
 
+function renderSourceText(quelle) {
+    const s = String(quelle ?? '').trim();
+    if (!s) return '';
+    if (/^https?:\/\//i.test(s)) {
+        const safe = escapeHtml(s);
+        return `<a href="${safe}" target="_blank" rel="noopener noreferrer">${safe}</a>`;
+    }
+    return escapeHtml(s);
+}
+
 export function renderUpload(root) {
     root.innerHTML = `
         <section>
@@ -158,7 +168,7 @@ export function renderUpload(root) {
                     <dt>Titel</dt><dd>${escapeHtml(rezept.title || '')}</dd>
                     ${rezept.category ? `<dt>Kategorie</dt><dd>${escapeHtml(rezept.category)}</dd>` : ''}
                     ${rezept.preparation_time ? `<dt>Zubereitungszeit</dt><dd>${escapeHtml(rezept.preparation_time)}</dd>` : ''}
-                    ${rezept.source ? `<dt>Quelle</dt><dd>${escapeHtml(rezept.source)}</dd>` : ''}
+                    ${rezept.source ? `<dt>Quelle</dt><dd>${renderSourceText(rezept.source)}</dd>` : ''}
                 </dl>
 
                 ${ingredients.length ? `<h3>Zutaten (Mengen pro Person, Einheiten normalisiert)</h3>${ingredientsHtml}` : ''}
