@@ -1,7 +1,8 @@
 import { APP_BASE } from './config.js';
 import { api, onTokenInvalid, getToken } from './api.js';
 import * as checksQueue from './checks_queue.js';
-import { renderRezeptListe, renderRezeptDetail, renderRezeptEdit } from './views/rezepte.js';
+import { renderRezeptListe, renderRezeptDetail } from './views/rezepte.js';
+import { renderRezeptFormEdit, renderRezeptFormNew } from './views/rezept_form.js';
 import { renderUpload } from './views/upload.js';
 import { renderEinkaufsliste } from './views/einkaufsliste.js';
 import { renderRezeptePrint } from './views/rezepte_print.js';
@@ -160,7 +161,8 @@ export const cart = {
 
 const routes = [
     { pattern: /^\/$/, handler: () => renderRezeptListe(app) },
-    { pattern: /^\/rezept\/(\d+)\/bearbeiten$/, handler: (m) => renderRezeptEdit(app, parseInt(m[1], 10)) },
+    { pattern: /^\/rezept\/neu$/, handler: () => renderRezeptFormNew(app) },
+    { pattern: /^\/rezept\/(\d+)\/bearbeiten$/, handler: (m) => renderRezeptFormEdit(app, parseInt(m[1], 10)) },
     { pattern: /^\/rezept\/(\d+)$/, handler: (m) => renderRezeptDetail(app, parseInt(m[1], 10)) },
     { pattern: /^\/upload$/, handler: () => renderUpload(app) },
     { pattern: /^\/einkaufsliste\/rezepte$/, handler: () => renderRezeptePrint(app) },

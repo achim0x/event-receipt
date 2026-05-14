@@ -13,7 +13,7 @@
 // Beim Deploy: CACHE_VERSION hochziehen → alle alten Caches werden
 // beim activate-Event aufgeräumt.
 
-const CACHE_VERSION = 'v7';
+const CACHE_VERSION = 'v8';
 const PRECACHE = `precache-${CACHE_VERSION}`;
 const RUNTIME = `runtime-${CACHE_VERSION}`;
 
@@ -36,6 +36,7 @@ const PRECACHE_PATHS = [
     'assets/aggregate.js',
     'assets/checks_queue.js',
     'assets/views/rezepte.js',
+    'assets/views/rezept_form.js',
     'assets/views/upload.js',
     'assets/views/einkaufsliste.js',
     'assets/views/rezepte_print.js',

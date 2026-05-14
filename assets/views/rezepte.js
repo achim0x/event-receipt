@@ -27,7 +27,10 @@ function formatQuantity(q) {
 export async function renderRezeptListe(root) {
     root.innerHTML = `
         <section>
-            <h1>Rezepte</h1>
+            <div class="page-head">
+                <h1>Rezepte</h1>
+                <a href="rezept/neu" data-link class="btn primary needs-network">+ Neues Rezept</a>
+            </div>
             <div class="toolbar">
                 <input type="search" id="suche" placeholder="Suche nach Titel…" autofocus>
                 <select id="kategorie">
@@ -71,7 +74,7 @@ export async function renderRezeptListe(root) {
 
     function renderListe(rezepte) {
         if (!rezepte.length) {
-            listeEl.innerHTML = `<p class="muted">Keine Rezepte gefunden. <a href="upload" data-link>Lade dein erstes Rezept hoch.</a></p>`;
+            listeEl.innerHTML = `<p class="muted">Keine Rezepte gefunden. <a href="rezept/neu" data-link>Lege ein neues Rezept an</a> oder <a href="upload" data-link>lade eine JSON-Datei hoch</a>.</p>`;
             return;
         }
         listeEl.innerHTML = rezepte.map(r => `
@@ -215,7 +218,12 @@ function sanitizeFilename(s) {
         .slice(0, 80) || 'rezept';
 }
 
-export async function renderRezeptEdit(root, id) {
+/**
+ * JSON-basierter Editor (Power-User-Modus). Wird über den Tab im Formular-
+ * Editor erreicht und ruft umgekehrt das Formular wieder auf, wenn der User
+ * zurückwechselt.
+ */
+export async function renderRezeptEditJson(root, id) {
     root.innerHTML = `<p class="muted">Lade Rezept zum Bearbeiten…</p>`;
     let rezept;
     try {
@@ -228,9 +236,15 @@ export async function renderRezeptEdit(root, id) {
     const initialJson = JSON.stringify(rezept.daten, null, 2);
 
     root.innerHTML = `
-        <section class="rezept">
+        <section class="rezept rezept-form-section">
             <p><a href="rezept/${id}" data-link>← Zurück zum Rezept</a></p>
             <h1>Rezept bearbeiten</h1>
+
+            <div class="editor-tabs" role="tablist">
+                <button type="button" class="editor-tab" role="tab" data-tab="form" aria-selected="false">📝 Formular</button>
+                <button type="button" class="editor-tab active" role="tab" data-tab="json" aria-selected="true">{ } JSON</button>
+            </div>
+
             <p class="muted">JSON direkt editieren. Keys dürfen DE oder EN sein — die werden beim Speichern automatisch normalisiert.</p>
 
             <textarea id="editor" spellcheck="false">${escapeHtml(initialJson)}</textarea>
@@ -243,6 +257,13 @@ export async function renderRezeptEdit(root, id) {
             <div id="edit-status"></div>
         </section>
     `;
+
+    // Tab zurück zum Formular — lazy import damit der JSON-Editor nicht
+    // statisch von rezept_form.js abhängt.
+    root.querySelector('.editor-tab[data-tab="form"]').addEventListener('click', async () => {
+        const { renderRezeptFormEdit } = await import('./rezept_form.js');
+        renderRezeptFormEdit(root, id);
+    });
 
     const editor = root.querySelector('#editor');
     const status = root.querySelector('#edit-status');

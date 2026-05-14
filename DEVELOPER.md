@@ -64,7 +64,8 @@ chmod 777 data/        # Apache muss SQLite-DB anlegen können
 │   ├── units.js                # displayUnit() — Pcs→Stück, Pck→Packung
 │   ├── style.css
 │   └── views/
-│       ├── rezepte.js          # List, Detail, Edit (renderRezept{Liste,Detail,Edit})
+│       ├── rezepte.js          # List, Detail, JSON-Editor (renderRezept{Liste,Detail,EditJson})
+│       ├── rezept_form.js      # Formular-Editor — Neuanlage + Bearbeiten (mit Tab zu JSON)
 │       ├── rezepte_print.js    # Druck-/PDF-Ansicht aller Cart-Rezepte
 │       ├── upload.js           # Drag&Drop, dry-run-Vorschau, Save/Abbrechen
 │       └── einkaufsliste.js    # Cart, Zutaten/Gewürze/Equipment-Aggregation, Export
@@ -750,8 +751,9 @@ spezifischere zuerst):
 | Pattern                          | View                    |
 |---------------------------------|-------------------------|
 | `/`                              | Rezeptliste             |
+| `/rezept/neu`                    | Formular-Editor (neues Rezept) |
 | `/rezept/{id}`                   | Detail                  |
-| `/rezept/{id}/bearbeiten`        | JSON-Editor             |
+| `/rezept/{id}/bearbeiten`        | Formular-Editor (Default) + JSON-Tab |
 | `/upload`                        | Upload-View             |
 | `/einkaufsliste`                 | Cart + Aggregations     |
 | `/einkaufsliste/rezepte`         | Druck-Ansicht aller Cart-Rezepte |
@@ -772,9 +774,38 @@ werden im Frontend live skaliert. Buttons:
 - "💾 Als JSON" → Download des `daten`-Blobs als `<titel>.json` (client-seitig, kein Server-Roundtrip). Datei ist re-importierbar via Upload/Import.
 - "🗑 Löschen" → Confirm + `DELETE` + Cart-Cleanup + Navigation auf `/`
 
-**`renderRezeptEdit`** — Textarea mit aktuellem JSON, Speichern/Reset/
-Abbrechen. Beim Speichern wird `cart`-Eintrag mit aktualisiertem Titel
-neu eingetragen, falls das Rezept dort liegt.
+**`renderRezeptFormEdit` / `renderRezeptFormNew`** (`views/rezept_form.js`)
+— **Formular-basierter Editor**, der für beide Use-Cases das gleiche
+DOM-Gerüst nutzt:
+
+- **Bearbeiten** (`/rezept/{id}/bearbeiten`) — lädt das Rezept,
+  vorgefüllte Inputs. Oben **Tab-Switch** zwischen 📝 Formular (Default)
+  und `{ }` JSON. Tab-Wechsel triggert einen lazy `import()` der
+  jeweils anderen View — keine doppelte Initialladung.
+- **Anlegen** (`/rezept/neu`) — leeres Gerüst mit genau einer
+  Ingredient-Gruppe und einem leeren Item. Kein JSON-Tab (JSON-Bearbeitung
+  ergibt nur für Bestandsrezepte Sinn).
+
+Sektionen: Allgemein (Titel*, Kategorie, Zubereitungszeit, Quelle),
+Zutaten (n Gruppen × m Items, Add/Remove pro Ebene; quantity-Feld
+akzeptiert Komma und Punkt), Gewürze / Zubereitung / Tipps (dynamische
+Listen, Zubereitung+Tipps mit Textarea), Küchenausstattung. Beim Submit
+wird das DOM rückwärts zum kanonischen Schema serialisiert und an
+`api.uploadRezeptJson()` (neu) bzw. `api.updateRezept()` (bearbeiten)
+geschickt — das Backend (`normalize_recipe`) übernimmt Einheiten- und
+Department-Normalisierung, sodass „Stück" und „Obst/Gemüse" hier
+unverändert eingegeben werden können.
+
+Department-Select bietet die deutschen Labels via `displayDepartment()`
+an, speichert intern aber den englischen Slug — `select.value`
+landet 1:1 in der gesendeten JSON. Die letzte Gruppe und das letzte
+Item lassen sich nicht entfernen (Form-Mindestumfang), sondern werden
+beim Klick auf × geleert.
+
+**`renderRezeptEditJson`** (`views/rezepte.js`) — Textarea mit
+aktuellem JSON, Speichern/Reset/Abbrechen, plus Tab-Switch zurück
+zum Formular. Beim Speichern wird der `cart`-Eintrag mit aktualisiertem
+Titel neu eingetragen, falls das Rezept dort liegt.
 
 **`renderUpload`** — Drag&Drop oder File-Picker. Header-Hinweise:
 (1) Download-Link auf `recipe_template.json` (base-relativ, mit
@@ -973,8 +1004,8 @@ Wer die App im Internet (statt LAN) betreibt:
 
 ## 11. Erweiterungsideen (offen)
 
-- **Form-basierter Editor** statt Textarea (Felder pro Zutat, Drag-Sort
-  von Zubereitungs-Schritten)
+- **Drag-Sort** für Zutaten- und Zubereitungs-Reihenfolge im Formular-
+  Editor (z.B. via HTML5 native drag&drop oder SortableJS)
 - **Bilder pro Rezept** — neue Spalte + Upload-Endpunkt + Static-Serving
 - **Volltextsuche auch über Zutaten** — JSON1-Funktionen in SQLite
   (`json_extract(daten, '$.ingredients...')`)
@@ -987,6 +1018,44 @@ Wer die App im Internet (statt LAN) betreibt:
 ---
 
 ## 12. Changelog
+
+### 2026-05-14 — Formular-basierter Rezept-Editor + UI-Neuanlage
+
+Bis dahin gab es nur den JSON-Textarea-Editor und den Upload — beides
+setzte voraus, dass der User valides Rezept-JSON tippt oder generiert.
+Jetzt:
+
+- Neue View `assets/views/rezept_form.js` mit komplettem Formular für
+  alle Schema-Felder (Titel, Kategorie, Zubereitungszeit, Quelle,
+  Zutaten-Gruppen mit Items, Gewürze, Zubereitung, Tipps, Küchen-
+  ausstattung). Dynamisches Add/Remove auf jeder Ebene.
+- Department-Select zeigt deutsche Labels (`displayDepartment()`),
+  speichert kanonische englische Slugs. Einheiten-Select bietet
+  natürliche Eingabe (Stück, kg, L, EL, TL …) — Backend normalisiert.
+- **Zwei Eintrittspunkte**:
+  - `/rezept/neu` — neuer leerer Editor, „+ Neues Rezept"-Button
+    auf der Übersichts-Seite.
+  - `/rezept/{id}/bearbeiten` — Formular als Default, mit Tab-Switch
+    zum bisherigen JSON-Editor (Lazy-Imports in beide Richtungen).
+- Bestehender JSON-Editor in `rezepte.js` umbenannt zu
+  `renderRezeptEditJson`, bekommt jetzt selbst ebenfalls den Tab-
+  Switcher (zurück zum Formular).
+- Save-Pfade ungeändert: `api.uploadRezeptJson()` für neu,
+  `api.updateRezept()` für edit — beide Endpunkte machen serverseitig
+  die finale Validierung und Normalisierung. Form-State wird nicht
+  client-seitig vorgeprüft (außer Titel + min. 1 Zutat); 400-Antworten
+  vom Server werden in der Statuszeile angezeigt.
+- Cart-Titel-Sync wie beim alten Editor: Wenn das bearbeitete Rezept
+  im Cart liegt, wird der Titel dort aktualisiert.
+- CSS: neue Sektion mit `.editor-tabs`, `.form-section`,
+  `.ingredient-group`, `.ingredient-item`, `.simple-list-row`,
+  `.equipment-row`. Responsive Layout (≤700 px: Zutaten-Item bricht
+  von 5-Spalten-Grid auf 2-Zeilen-Areas um).
+- `sw.js` CACHE_VERSION → `v8`, `rezept_form.js` in PRECACHE_PATHS.
+- Aus Sektion 11 entfernt: „Form-basierter Editor als
+  Erweiterungsidee" — ist jetzt implementiert.
+
+---
 
 ### PWA-Implementierung (Mai 2026) — Übersicht der 6 Phasen
 

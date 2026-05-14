@@ -533,6 +533,174 @@ textarea#editor {
 .print-section .print-rezept ul { padding-left: 1.5rem; }
 .print-title { margin: 1rem 0 1.5rem; }
 
+/* --- Rezept-Listenkopf mit „Neues Rezept"-Button ---------------------- */
+.page-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+}
+.page-head h1 { margin: 0; }
+
+/* --- Form-Editor (Erstellen / Bearbeiten) ----------------------------- */
+.rezept-form-section .editor-tabs {
+    display: flex;
+    gap: 0.25rem;
+    border-bottom: 1px solid var(--border);
+    margin: 1rem 0 1.5rem;
+}
+.editor-tab {
+    appearance: none;
+    background: transparent;
+    border: 1px solid transparent;
+    border-bottom: none;
+    padding: 0.55rem 1.1rem;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 0.95rem;
+    font-weight: 500;
+    border-radius: 6px 6px 0 0;
+    font-family: inherit;
+}
+.editor-tab:hover { color: var(--text); background: #f5f4f0; }
+.editor-tab.active {
+    color: var(--accent);
+    border-color: var(--border);
+    background: var(--surface);
+    position: relative;
+    top: 1px;
+}
+
+#rezept-form .form-section {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem 1.25rem;
+    margin: 0 0 1.25rem;
+    background: var(--bg);
+}
+#rezept-form .form-section > legend {
+    font-weight: 600;
+    padding: 0 0.4rem;
+    color: var(--text);
+}
+#rezept-form .req { color: var(--accent); margin-left: 0.15rem; }
+
+#rezept-form .field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin: 0.6rem 0;
+}
+#rezept-form .field > span {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--muted);
+}
+#rezept-form input[type="text"],
+#rezept-form input[type="number"],
+#rezept-form select,
+#rezept-form textarea {
+    padding: 0.55rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 1rem;
+    font-family: inherit;
+    background: var(--surface);
+    color: var(--text);
+    width: 100%;
+}
+#rezept-form textarea {
+    resize: vertical;
+    min-height: 3rem;
+    line-height: 1.5;
+}
+#rezept-form input:focus,
+#rezept-form select:focus,
+#rezept-form textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.form-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+}
+
+/* Ingredient groups */
+.ingredient-group {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.75rem;
+}
+.ingredient-group-head {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.75rem;
+}
+.flex-grow { flex: 1; }
+.ingredient-items {
+    margin: 0.5rem 0;
+}
+.ingredient-item {
+    display: grid;
+    grid-template-columns: 5rem 6.5rem 1fr 9rem auto;
+    gap: 0.5rem;
+    align-items: center;
+    margin: 0.35rem 0;
+}
+.ingredient-item input,
+.ingredient-item select { width: 100%; }
+
+/* Simple lists (spices, preparation, tips) */
+.simple-list-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+    margin: 0.35rem 0;
+}
+.simple-list-row input,
+.simple-list-row textarea { flex: 1; }
+
+/* Equipment */
+.equipment-row {
+    display: grid;
+    grid-template-columns: 6rem 1fr auto;
+    gap: 0.5rem;
+    align-items: center;
+    margin: 0.35rem 0;
+}
+
+/* Icon-only X-Button — gleiche Höhe wie Inputs */
+.btn.icon-only {
+    padding: 0.4rem 0.7rem;
+    line-height: 1;
+}
+
+@media (max-width: 700px) {
+    .form-grid-2 { grid-template-columns: 1fr; }
+    .ingredient-item {
+        grid-template-columns: 5rem 1fr auto;
+        grid-template-areas:
+            "qty unit  remove"
+            "name name name"
+            "dept dept dept";
+    }
+    .ingredient-item .qty   { grid-area: qty; }
+    .ingredient-item .unit  { grid-area: unit; }
+    .ingredient-item .name  { grid-area: name; }
+    .ingredient-item .dept  { grid-area: dept; }
+    .ingredient-item .icon-only { grid-area: remove; }
+    .equipment-row {
+        grid-template-columns: 6rem 1fr auto;
+    }
+}
+
 @media print {
     .app-header,
     .app-footer,
