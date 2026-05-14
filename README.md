@@ -26,7 +26,8 @@ JavaScript framework, no Composer.
 - Vanilla ES modules (no bundler, no npm)
 
 **Authentication**
-To activate authentication set `const REQUIRE_AUTH_TOKEN` = true; at the end of /api/bootstrap.php
+- To activate token-based device authentication, set `const REQUIRE_AUTH_TOKEN = true;` at the bottom of `api/bootstrap.php`. After that, only paired devices can access the app — see [Enable device-pairing](#enable-device-pairing-optional-opt-in) for the setup walkthrough.
+- By default, only **admin** devices (= the first device that redeems the setup token) can manage other devices and create pairing codes. To let **every** paired device manage devices too, set `const DEVICE_MANAGEMENT_OPEN_TO_ALL = true;` in the same file. See [Open device management to all devices](#open-device-management-to-all-devices).
 
 ---
 
@@ -277,12 +278,40 @@ deployments you can switch on token-based device pairing:
 5. Paste it on `/setup` → you're logged in as Web Admin (cookie set)
 6. Go to „Geräte" in the top nav → „Pairing-Code erzeugen"
 7. On the phone: open the PWA URL → automatic redirect to `/pair` →
-   enter the 8-character code (XXXX-XXXX) within 5 minutes
+   enter the 8-character code (XXXX-XXXX) within 15 minutes
 8. The phone stores a bearer token in localStorage; from now on every
    request is signed
 
-Revoke compromised devices from the same „Geräte" screen. Logout
-clears the web cookie only — bearer tokens stay valid until revoked.
+Revoke compromised devices from the same „Geräte" screen. You can
+also revoke **your own** device from there — useful when you're
+logging out from a shared computer. Logout (without revoke) clears
+the web cookie only — bearer tokens stay valid until revoked.
+
+> **Lockout guard**: revoking the last remaining active admin device
+> is refused with HTTP 400 — otherwise you would have to re-run the
+> SSH-based setup-token flow to get back in. Create a second admin
+> first if you really want to retire the current one.
+
+### Open device management to all devices
+
+Default behaviour: only the **admin** device (= the device that
+redeemed the initial setup token) can list, pair or revoke devices.
+Devices added later via pairing-code can use the app but cannot
+manage device access.
+
+To lift that restriction — for instance in a household where any
+adult should be able to add a new family member's phone — set the
+constant in `api/bootstrap.php`:
+
+```php
+const DEVICE_MANAGEMENT_OPEN_TO_ALL = true;
+```
+
+With that flag on, every paired device sees the „Geräte" nav entry
+and can create pairing codes, revoke devices and so on. The admin
+flag still exists in the database and one active admin device is
+still required at all times (lockout guard above), but no longer
+gatekeeps the UI/API.
 
 ### Replace placeholder icons
 
